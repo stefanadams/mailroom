@@ -1,0 +1,8 @@
+{
+  pg => 'postgresql://user@%2fvar%2frun%2fpostgresql/mailroom', # The socket specified here is a path to a directory
+  admin_ui => 'Bender:rocks',
+  sendgrid => {
+    apikey => '** api key **',
+    spam_score_threshold => 5,
+  },
+}
