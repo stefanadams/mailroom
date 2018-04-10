@@ -58,7 +58,7 @@ app->pg->migrations->from_data->migrate;
 plugin Minion => {Pg => app->pg};
 
 app->minion->add_task(forward => sub {
-  my ($job, $id, $domain, $mail_from, $recipients, $forward_to, $data) = @_;
+  my ($job, $mail_from, $recipients, $forward_to, $data) = @_;
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
     from => $mail_from,
@@ -67,10 +67,11 @@ app->minion->add_task(forward => sub {
     quit => 1,
   );
   if ( $resp->error ) {
-    $job->app->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
+    #$job->app->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
     $job->fail(sprintf 'Failed to send: %s', $resp->error);
   } else {
-    $job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
+    #$job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
+    $job->finish('Sent successfully');
   }
 });
 
@@ -80,8 +81,6 @@ post '/' => sub {
   my $moniker = $c->app->moniker;
   my $domain = $c->req->url->to_abs->host;
   $domain =~ s/^$moniker\.// or return $c->reply->not_found;
-
-  my $id = substr(md5_sum($domain.time), 0, 6);
 
   # TO DO: Capture this email and send a digest of retrievable SPAM messages to either the intended recipient or the designated admin account
   # Test SPAM: XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X
@@ -106,8 +105,8 @@ post '/' => sub {
   return $c->render(text => $c->app->log->info(sprintf '[%s] Failed to send: No matches', $domain)->history->[-1]->[-1]) unless keys %$lookup;
 
   #$c->app->log->debug("RCPT TO: %s", join ', ', map { '<'.$_->address.'>' } values %$lookup);
-  $c->minion->enqueue(forward => [$id, $domain, $mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $c->req->params->to_hash->{email}]);
-  $c->render(text => $c->app->log->info(sprintf '[%s(%s)] Queued successfully', $domain, $id)->history->[-1]->[-1]);
+  my $id = $c->minion->enqueue(forward => [$mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $c->req->params->to_hash->{email}] => {queue => $domain});
+  $c->render(text => $c->app->log->info(sprintf '%s job %s queued successfully', $domain, $id)->history->[-1]->[-1]);
 };
 
 # Secure access to the admin ui with Basic authentication
