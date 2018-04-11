@@ -62,11 +62,13 @@ app->minion->add_task(forward => sub {
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
     from => $mail_from,
-    to => @$forward_to,
+    to => $forward_to,
     data => $data,
     quit => 1,
   );
-  if ( $resp->error ) {
+  if ( !ref $resp ) {
+    $job->fail(sprintf 'Failed to send: Unexpected return code %s', $resp);
+  } elsif ( $resp->error ) {
     #$job->app->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
     $job->fail(sprintf 'Failed to send: %s', $resp->error);
   } else {
