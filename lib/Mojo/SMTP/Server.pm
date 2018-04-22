@@ -5,7 +5,7 @@ use Mojo::IOLoop;
 
 use Mojo::SMTP::Server::Connection;
 
-has address => '127.0.0.1';
+has address => '0.0.0.0';
 has port => '25';
 
 has minion => sub { die };
