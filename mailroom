@@ -76,6 +76,25 @@ app->minion->add_task(forward => sub {
     $job->finish('Sent successfully');
   }
 });
+app->minion->add_task(relay => sub {
+  my ($job, $mail_from, $rcpt_to, $data) = @_;
+  my $resp = $job->app->smtp->send(
+    auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
+    from => $mail_from,
+    to => $rcpt_to,
+    data => $data,
+    quit => 1,
+  );
+  if ( !ref $resp ) {
+    $job->fail(sprintf 'Failed to send: Unexpected return code %s', $resp);
+  } elsif ( $resp->error ) {
+    #$job->app->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
+    $job->fail(sprintf 'Failed to send: %s', $resp->error);
+  } else {
+    #$job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
+    $job->finish('Sent successfully');
+  }
+});
 
 post '/' => sub {
   my $c = shift->render_later;
