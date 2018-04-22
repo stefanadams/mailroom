@@ -9,7 +9,7 @@ has usage => sub { shift->extract_usage };
 sub run {
   my $self = shift;
 
-  my $smtp = Mojo::SMTP::Server->new(minion => $self->app->minion);
+  my $smtp = Mojo::SMTP::Server->new(minion => $self->app->minion, config => $self->app->config);
   $smtp->start;
   print "Goodbye\n";
 }

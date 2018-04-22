@@ -1,7 +1,7 @@
 package Mojo::SMTP::Server::Connection;
 use Mojo::Base 'Mojo::EventEmitter';
 
-use Mojo::Util 'b64_decode';
+use Mojo::Util qw/b64_decode b64_encode/;
 
 use Crypt::Password ();
 
@@ -9,31 +9,34 @@ has [qw/server stream id _cmd helo username password mail_from/];
 has rcpt_to => sub { [] };
 has data => sub { [] };
 
+has 'config';
+
 sub new {
   my $self = shift->SUPER::new(@_);
   $self->_on_connect;
   $self->stream->on(read => sub {
     my ($stream, $bytes) = @_;
     #$self->log->debug($bytes);
-    if ( my ($cmd) = ($bytes =~ /^(connect|ehlo|helo|auth\s+login|auth\s+plain|mail\s+from|rcpt\s+to|data|rset|vrfy|noop|size|help|debug|stop|quit)/i) ) {
+    $self->cmd($stream, $bytes) and return if $self->_cmd;
+    if ( my ($cmd) = ($bytes =~ /^(connect|ehlo|helo|auth\s+login|auth\s+plain|mail\s+from|rcpt\s+to|data|rset|vrfy|noop|size|help|debug|stop|quit|b64_encode|b64_decode)/i) ) {
       $cmd =~ s/\s+/_/g;
       $self->_cmd(lc($cmd));
-    } elsif ( $bytes =~ /^\*/ ) {
-      $self->username('')->password('')->write(501, 'Authentication request canceled')->finish and return;
-    } elsif ( !$self->_cmd ) {
+      $self->cmd($stream, $bytes);
+    } else {
       $bytes =~ /^(\w+)/;
       $self->write(500, "Unrecognized command: $1");
-      return;
     }
-    $self->cmd($stream, $bytes);
   });
   return $self;
 }
 
 sub auth {
   my $self = shift;
+  return 0 unless $self->username && $self->password;
   #$self->server->pg->db->select('auth', ['username'], {username => $self->username, password => Crypt::Password::password($self->password)})->rows;
-  return $self->username && $self->password ? 1 : 0;
+warn Data::Dumper::Dumper($self->server->config->{auth});
+  return 0 unless $self->server->config->{auth}->{$self->username};
+  return $self->server->config->{auth}->{$self->username} eq $self->password ? 1 : 0;
 }
 
 sub cmd {
@@ -93,8 +96,21 @@ sub _on_helo {
   $self->write(250, "Hello $1", 'AUTH PLAIN LOGIN')->finish;
 }
 
+sub _on_b64_decode {
+  my ($self, $stream, $bytes) = @_;
+  $bytes =~ /^b64_decode\s+(.*?)\s*\r?\n/;
+  $self->write(250, b64_decode($1))->finish;
+}
+
+sub _on_b64_encode {
+  my ($self, $stream, $bytes) = @_;
+  $bytes =~ /^b64_encode\s+(.*?)\s*\r?\n/;
+  $self->write(250, b64_encode($1))->finish;
+}
+
 sub _on_auth_plain {
   my ($self, $stream, $bytes) = @_;
+  $self->username('')->password('')->write(501, 'Authentication request canceled')->finish and return if $bytes =~ /^\*\r?\n/;
   $self->write(503, 'Already authenticated')->finish and return if $self->auth;
   #$self->write(xxx, 'Mail transaction already in progress')->finish and return if $self->mail_from || @{$self->rcpt_to};
   $self->na and return unless $self->helo;
@@ -117,6 +133,7 @@ sub _on_auth_plain {
 
 sub _on_auth_login {
   my ($self, $stream, $bytes) = @_;
+  $self->username('')->password('')->write(501, 'Authentication request canceled')->finish and return if $bytes =~ /^\*\r?\n/;
   $self->write(503, 'Already authenticated')->finish and return if $self->auth;
   $self->na and return unless $self->helo;
   if ( $bytes =~ /^auth\s+login\s*\r?\n$/i ) {

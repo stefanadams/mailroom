@@ -1,0 +1,153 @@
+#!/usr/bin/env perl
+package Mojo::SMTP::Server;
+use Mojo::Base 'Mojo::EventEmitter';
+
+use Mojo::IOLoop;
+
+has address => '127.0.0.1';
+has port => '25';
+has _message_id => 0;
+
+sub start {
+  my $self = shift;
+  my $server = Mojo::IOLoop->server({address => $self->address, port => $self->port}, sub {
+    my ($loop, $stream, $id) = @_;
+    print "New connection\n";
+    $stream->timeout(30)->on(timeout => sub { warn "Connection timed out\n" });
+    Mojo::SMTP::Connection->new(server => $self, stream => $stream, id => $id);
+  });
+  print "Server started\n";
+  Mojo::IOLoop->start unless Mojo::IOLoop->is_running;
+}
+
+sub message_id {
+  my $self = shift;
+  $self->_message_id($self->_message_id+1)->_message_id;
+}
+
+package Mojo::SMTP::Connection;
+use Mojo::Base 'Mojo::EventEmitter';
+
+has [qw/server stream id _cmd username password mail_from rcpt_to/];
+has data => sub { [] };
+
+sub new {
+  my $self = shift->SUPER::new(@_);
+  $self->_on_connect;
+  $self->stream->on(read => sub {
+    my ($stream, $bytes) = @_;
+    if ( my ($cmd) = ($bytes =~ /^(connect|ehlo|helo|auth\s+login|auth\s+plain|mail\s+from|rcpt\s+to|data|rset|vrfy|noop|size|help|debug|stop|quit)/) ) {
+      $cmd =~ s/\s+/_/g;
+      $self->_cmd(lc($cmd));
+    } elsif ( !$self->_cmd ) {
+      $bytes =~ /^(\w+)/;
+      $self->resp(550, "Unrecognized command: $1");
+      return;
+    }
+    $self->cmd($stream, $bytes);
+  });
+  return $self;
+}
+
+sub cmd {
+  my $self = shift;
+  return unless my $cmd = $self->_cmd;
+  $cmd = lc("_on_$cmd");
+  $self->$cmd(@_);
+}
+
+sub finish { shift->_cmd('') }
+
+sub na { shift->resp(250, 'Not implemented')->finish }
+sub ok { shift->resp(250, 'OK')->finish }
+
+sub queue {
+}
+
+sub resp {
+  my ($self, $code) = (shift, shift);
+  my $cb = ref $_[-1] eq 'CODE' ? pop : ();
+  my $resp = '';
+  while ( @_ ) {
+    chomp(my $line = shift @_);
+    $resp .= sprintf "%s%s%s\n", $code, (@_?'-':' '), $line;
+  }
+  $self->stream->write($resp => $cb);
+  return $self;
+}
+
+sub _on_connect {
+  my $self = shift;
+  $self->resp(220, scalar localtime, scalar localtime)->finish;
+}
+
+sub _on_ehlo { shift->_on_helo(@_) }
+sub _on_helo {
+  my ($self, $stream, $bytes) = @_;
+  $self->resp(250, 'Hello')->finish;
+}
+
+sub _on_auth_plain {
+  my ($self, $stream, $bytes) = @_;
+  $self->na;
+}
+
+sub _on_auth_login {
+  my ($self, $stream, $bytes) = @_;
+  $self->na;
+}
+
+sub _on_starttls {
+  my ($self, $stream, $bytes) = @_;
+  $self->na;
+}
+
+sub _on_mail_from {
+  my ($self, $stream, $bytes) = @_;
+  $self->mail_from($bytes)->finish;
+  $self->ok;
+}
+
+sub _on_rcpt_to {
+  my ($self, $stream, $bytes) = @_;
+  $self->rcpt_to($bytes)->finish;
+  $self->ok;
+}
+
+sub _on_data {
+  my ($self, $stream, $bytes) = @_;
+  $self->resp(354, 'Send message content; end with <CRLF>.<CRLF>') unless @{$self->data};
+  $self->queue->resp(250, sprintf 'OK message queued as %s', 1)->finish and return if $bytes =~ /^.\r?\n$/;
+  push @{$self->data}, $bytes;
+}
+
+sub _on_noop { shift->ok }
+
+sub _on_rset {
+  my ($self, $stream, $bytes) = @_;
+  $self->mail_from('')->rcpt_to('')->username('')->password('')->data([])->finish;
+  $self->ok;
+}
+
+sub _on_debug {
+  my ($self, $stream, $bytes) = @_;
+  $self->resp(250, $self->_cmd, $self->username, $self->password, $self->mail_from, $self->rcpt_to, @{$self->data})->finish;
+}
+
+sub _on_stop {
+  my ($self, $stream, $bytes) = @_;
+  $self->resp(250, 'Goodbye', sub { shift->close })->finish;
+  Mojo::IOLoop->timer(0.5 => sub { Mojo::IOLoop->stop if Mojo::IOLoop->is_running });
+}
+
+sub _on_quit {
+  my ($self, $stream, $bytes) = @_;
+  $self->resp(250, 'Goodbye', sub { shift->close })->finish;
+}
+
+package main;
+use Mojo::IOLoop;
+
+my $smtp = Mojo::SMTP::Server->new;
+$smtp->start;
+print "Goodbye\n";

@@ -8,6 +8,7 @@ use Mojo::SMTP::Server::Connection;
 has address => '0.0.0.0';
 has port => '25';
 
+has 'config';
 has minion => sub { die };
 
 sub start {
