@@ -1,13 +1,16 @@
 package Mojo::SMTP::Server::Connection;
 use Mojo::Base 'Mojo::EventEmitter';
 
-use Mojo::Util qw/b64_decode b64_encode/;
+use Mojo::Home;
+use Mojo::File 'path';
+use Mojo::Util qw/b64_decode b64_encode md5_sum/;
 
-use Crypt::Password ();
+#use Crypt::Password ();
 
 has [qw/server stream id _cmd helo username password mail_from/];
 has rcpt_to => sub { [] };
 has data => sub { [] };
+has home => sub { Mojo::Home->new->detect(ref shift) };
 
 has 'config';
 
@@ -34,7 +37,7 @@ sub auth {
   my $self = shift;
   return 0 unless $self->username && $self->password;
   #$self->server->pg->db->select('auth', ['username'], {username => $self->username, password => Crypt::Password::password($self->password)})->rows;
-warn Data::Dumper::Dumper($self->server->config->{auth});
+  #warn Data::Dumper::Dumper($self->server->config->{auth});
   return 0 unless $self->server->config->{auth}->{$self->username};
   return $self->server->config->{auth}->{$self->username} eq $self->password ? 1 : 0;
 }
@@ -57,7 +60,8 @@ sub queue {
       my $data = join '', @{$self->data};
       $data =~ s/^data\s*\r?\n//i;
       $data =~ s/\r?\n\.\r?\n.*$//;
-      my $id = $self->server->minion->enqueue(relay => [$self->mail_from, $self->rcpt_to, $data]);
+      my $spool = $self->home->child('spool', 'relay')->make_path->child(md5_sum $self)->spurt($data)->to_string;
+      my $id = $self->server->minion->enqueue(relay => [$self->mail_from, $self->rcpt_to, $spool]);
       return $self->write(250, sprintf 'OK message queued as %s', $id)->reset;
     } else {
       return $self->write(530, 'bad')->finish;

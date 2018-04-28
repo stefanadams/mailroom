@@ -20,6 +20,7 @@ use Mojolicious::Lite;
 use lib 'lib';
 
 use Mojo::JSON 'j';
+use Mojo::File qw/tempfile path/;
 use Mojo::Util 'md5_sum';
 use Mojo::Pg;
 use Mojo::SMTP::Client;
@@ -58,12 +59,12 @@ app->pg->migrations->from_data->migrate;
 plugin Minion => {Pg => app->pg};
 
 app->minion->add_task(forward => sub {
-  my ($job, $mail_from, $recipients, $forward_to, $data) = @_;
+  my ($job, $mail_from, $recipients, $forward_to, $spool) = @_;
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
     from => $mail_from,
     to => $forward_to,
-    data => $data,
+    data => path($spool)->slurp,
     quit => 1,
   );
   if ( !ref $resp ) {
@@ -74,15 +75,16 @@ app->minion->add_task(forward => sub {
   } else {
     #$job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
     $job->finish('Sent successfully');
+    unlink $spool;
   }
 });
 app->minion->add_task(relay => sub {
-  my ($job, $mail_from, $rcpt_to, $data) = @_;
+  my ($job, $mail_from, $rcpt_to, $spool) = @_;
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
     from => $mail_from,
     to => $rcpt_to,
-    data => $data,
+    data => path($spool)->slurp,
     quit => 1,
   );
   if ( !ref $resp ) {
@@ -93,6 +95,7 @@ app->minion->add_task(relay => sub {
   } else {
     #$job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
     $job->finish('Sent successfully');
+    unlink $spool;
   }
 });
 
@@ -126,7 +129,8 @@ post '/' => sub {
   return $c->render(text => $c->app->log->info(sprintf '[%s] Failed to send: No matches', $domain)->history->[-1]->[-1]) unless keys %$lookup;
 
   #$c->app->log->debug("RCPT TO: %s", join ', ', map { '<'.$_->address.'>' } values %$lookup);
-  my $id = $c->minion->enqueue(forward => [$mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $c->req->params->to_hash->{email}] => {queue => $domain});
+  my $spool = $c->app->home->child('spool', 'forward')->make_path->child(md5_sum $c)->spurt($c->req->params->to_hash->{email})->to_string;
+  my $id = $c->minion->enqueue(forward => [$mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $spool] => {queue => $domain});
   $c->render(text => $c->app->log->info(sprintf '%s job %s queued successfully', $domain, $id)->history->[-1]->[-1]);
 };
 
