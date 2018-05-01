@@ -60,6 +60,7 @@ plugin Minion => {Pg => app->pg};
 
 app->minion->add_task(forward => sub {
   my ($job, $mail_from, $recipients, $forward_to, $spool) = @_;
+  $job->fail("Unable to read $spool") and return unless -f $spool && -r _;
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
     from => $mail_from,
@@ -80,6 +81,7 @@ app->minion->add_task(forward => sub {
 });
 app->minion->add_task(relay => sub {
   my ($job, $mail_from, $rcpt_to, $spool) = @_;
+  $job->fail("Unable to read $spool") and return unless -f $spool && -r _;
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
     from => $mail_from,
@@ -129,9 +131,14 @@ post '/' => sub {
   return $c->render(text => $c->app->log->info(sprintf '[%s] Failed to send: No matches', $domain)->history->[-1]->[-1]) unless keys %$lookup;
 
   #$c->app->log->debug("RCPT TO: %s", join ', ', map { '<'.$_->address.'>' } values %$lookup);
-  my $spool = $c->app->home->child('spool', 'forward')->make_path->child(md5_sum $c)->spurt($c->req->params->to_hash->{email})->to_string;
-  my $id = $c->minion->enqueue(forward => [$mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $spool] => {queue => $domain});
-  $c->render(text => $c->app->log->info(sprintf '%s job %s queued successfully', $domain, $id)->history->[-1]->[-1]);
+  my $data = Mojo::Asset::File->new(cleanup => 0, tmpdir => $c->app->home->child('spool', 'forward')->make_path);
+  $data->add_chunk($c->req->params->to_hash->{email});
+  if ( $data->size ) {
+    my $id = $c->minion->enqueue(forward => [$mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $data->path] => {queue => $domain});
+    $c->render(text => $c->app->log->info(sprintf '%s job %s queued successfully', $domain, $id)->history->[-1]->[-1]);
+  } else {
+    $c->render(text => $c->app->log->error(sprintf '%s job queued unsuccessfully', $domain)->history->[-1]->[-1], status => 501);
+  }
 };
 
 # Secure access to the admin ui with Basic authentication
