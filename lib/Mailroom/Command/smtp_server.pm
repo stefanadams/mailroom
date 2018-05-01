@@ -10,7 +10,7 @@ sub run {
   my $self = shift;
 
   my $smtp = Mojo::SMTP::Server->new(minion => $self->app->minion, config => $self->app->config);
-  $smtp->start;
+  $smtp->start if $smtp;
   print "Goodbye\n";
 }
 
