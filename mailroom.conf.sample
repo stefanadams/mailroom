@@ -5,4 +5,9 @@
     apikey => '** api key **',
     spam_score_threshold => 5,
   },
+  user => 1000,
+  group => 1000,
+  auth => { # temporary authentication store
+    'user' => 'passwd',
+  },
 }
