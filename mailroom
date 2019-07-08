@@ -17,7 +17,7 @@ use Mojolicious::Lite;
 #   On Spam: enqueue it and fail it for digesting later
 #   Test wildcard recipient
 
-use lib 'lib';
+use lib '/var/mojo/apps/mailroom/lib';
 
 use Mojo::JSON 'j';
 use Mojo::File qw/tempfile path/;
@@ -27,6 +27,8 @@ use Mojo::SMTP::Client;
 use Minion;
 
 use Mail::Address;
+use Mail::DMARC::PurePerl;
+use Mail::Internet;
 
 push @{app->commands->namespaces}, 'Mailroom::Command';
 
@@ -60,6 +62,8 @@ plugin Minion => {Pg => app->pg};
 
 app->minion->add_task(forward => sub {
   my ($job, $mail_from, $recipients, $forward_to, $spool) = @_;
+  my $time = time;
+  # TODO: fail if bad SSL on $domain
   $job->fail("Unable to read $spool") and return unless -f $spool && -r _;
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
@@ -76,11 +80,18 @@ app->minion->add_task(forward => sub {
   } else {
     #$job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
     $job->finish('Sent successfully');
-    unlink $spool;
+    #unlink $spool;
   }
+  #sleep 60;
+  #my $time1 = time;
+  #my $api = $job->app->config('sendgrid')->{apikey};
+  #my $result = $job->app->ua->get("https://api.sendgrid.com/v3/suppression/blocks?start_time=$time&end_time=$time1" => {Authorization => "Bearer $api"})->result;
+  #return unless 
+  #my $blocks = Mojo::Collection->new($
 });
 app->minion->add_task(relay => sub {
   my ($job, $mail_from, $rcpt_to, $spool) = @_;
+  # TODO: fail if bad SSL on $domain
   $job->fail("Unable to read $spool") and return unless -f $spool && -r _;
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
@@ -128,11 +139,29 @@ post '/' => sub {
   #$c->app->log->debug("rcpt to: %s", join ', ', map { '<'.$_.'>' } @{$envelope->{to}});
   my $lookup = $c->lookup($domain, $to, @{$envelope->{to}});
   
+  my $email_data = $c->req->params->to_hash->{email};
+
+  # Check DMARC, and if it looks like it's going to fail, build a new email message header
+  my $dmarc = Mail::DMARC::PurePerl->new(header_from => $mail_from->host);
+  if ( $dmarc->validate->disposition ne 'none' ) {
+    $mail_from = Mail::Address->new("Mailroom Delivery Failure", "mailroom\@$domain");
+    my $to = $c->req->params->to_hash->{to};
+    my $subject = $c->req->params->to_hash->{subject};
+    my $mi = Mail::Internet->new;
+    $mi->extract([split /\n/, $email_data]);
+    chomp(my $ct = $mi->get('Content-Type'));
+    chomp(my $mv = $mi->get('MIME-Version'));
+    my $new_header = "From: \"Mailroom Delivery Failure\" <mailroom\@$domain>\nTo: $to\nSubject: $subject\n";
+    $new_header .= "MIME-Version: $mv\n" if $mv;
+    $new_header .= "Content-Type: $ct\n" if $ct;
+    $email_data = join "\n", $new_header, join("\n", @{$mi->body});
+  }
+
   return $c->render(text => $c->app->log->info(sprintf '[%s] Failed to send: No matches', $domain)->history->[-1]->[-1]) unless keys %$lookup;
 
   #$c->app->log->debug("RCPT TO: %s", join ', ', map { '<'.$_->address.'>' } values %$lookup);
   my $data = Mojo::Asset::File->new(cleanup => 0, tmpdir => $c->app->home->child('spool', 'forward')->make_path);
-  $data->add_chunk($c->req->params->to_hash->{email});
+  $data->add_chunk($email_data);
   if ( $data->size ) {
     my $id = $c->minion->enqueue(forward => [$mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $data->path] => {queue => $domain});
     $c->render(text => $c->app->log->info(sprintf '%s job %s queued successfully', $domain, $id)->history->[-1]->[-1]);
