@@ -2,6 +2,9 @@
 use Mojolicious::Lite;
 
 # TODO:
+#   Use SRS to pass DMARC (https://www.unlocktheinbox.com/resources/srs/)
+#     https://metacpan.org/pod/Mail::SRS
+#     https://www.libsrs2.org/srs/srs.pdf
 #   Multi-tenancy (minion admin ui, mainly)
 #     Handle with queues (but how to grant very auth to various queue)
 #   Command: remove alias
@@ -144,14 +147,16 @@ post '/' => sub {
   # Check DMARC, and if it looks like it's going to fail, build a new email message header
   my $dmarc = Mail::DMARC::PurePerl->new(header_from => $mail_from->host);
   if ( $dmarc->validate->disposition ne 'none' ) {
-    $mail_from = Mail::Address->new("Mailroom Delivery Failure", "mailroom\@$domain");
+    my $from_name = $addresses->{from}->[0]->phrase;
+    my $from_addr = $addresses->{from}->[0]->address;
+    $mail_from = Mail::Address->new($from_name, "mailroom-dmarc_rejection\@$domain");
     my $to = $c->req->params->to_hash->{to};
     my $subject = $c->req->params->to_hash->{subject};
     my $mi = Mail::Internet->new;
     $mi->extract([split /\n/, $email_data]);
     chomp(my $ct = $mi->get('Content-Type'));
     chomp(my $mv = $mi->get('MIME-Version'));
-    my $new_header = "From: \"Mailroom Delivery Failure\" <mailroom\@$domain>\nTo: $to\nSubject: $subject\n";
+    my $new_header = "From: \"$from_name\" <mailroom-dmarc_rejection\@$domain>\nReply-To: \"$from_name\" <$from_addr>\nTo: $to\nSubject: $subject\n";
     $new_header .= "MIME-Version: $mv\n" if $mv;
     $new_header .= "Content-Type: $ct\n" if $ct;
     $email_data = join "\n", $new_header, join("\n", @{$mi->body});
