@@ -35,7 +35,7 @@ use Mail::Internet;
 
 push @{app->commands->namespaces}, 'Mailroom::Command';
 
-plugin 'Config';
+plugin 'Config' => {default => {remove_after_days => 30}};
 
 helper pg     => sub { state $pg = Mojo::Pg->new(app->config('pg')) };
 helper smtp   => sub { state $smtp = Mojo::SMTP::Client->new(address => app->config('sendgrid')->{host} || 'smtp.sendgrid.net', autodie => 0) };
@@ -63,7 +63,7 @@ app->pg->migrations->from_data->migrate;
 
 plugin Minion => {Pg => app->pg};
 
-app->minion->remove_after(86400 * 30);
+app->minion->remove_after(app->config('remove_after_days') * 86_400);
 app->minion->add_task($_ => sub { shift->finish($_) }) for qw/processed dropped delivered deferred bounce/;
 app->minion->add_task(forward => sub {
   my ($job, $id, $mail_from, $recipients, $forward_to, $spool) = @_;

@@ -7,6 +7,7 @@
   },
   user => 1000,
   group => 1000,
+  remove_after_days => 30,
   auth => { # temporary authentication store
     'user' => 'passwd',
   },
