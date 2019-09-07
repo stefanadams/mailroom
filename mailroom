@@ -11,16 +11,16 @@ use Mojolicious::Lite;
 #   Command: add domain to sendgrid (requires sendgrid api)
 #   Should each domain have its own sendgrid api?
 #   Web: add, lookup, remove, add domain
-#   Better logging
-#   Purge finished jobs
+#   X Better logging
+#   X Purge finished jobs
 #   Test failed jobs
-#   Any way to link jobs / logs here with logs in sendgrid activity?
+#   X Any way to link jobs / logs here with logs in sendgrid activity?
 #   Command: Authenticated SMTP for sending as
-#   Setup mailroom and minion to auto start with systemd
+#   X Setup mailroom and minion to auto start with systemd
 #   On Spam: enqueue it and fail it for digesting later
 #   Test wildcard recipient
 
-use lib '/var/mojo/apps/mailroom/lib';
+use lib 'lib';
 
 use Mojo::JSON 'j';
 use Mojo::File qw/tempfile path/;
@@ -63,8 +63,10 @@ app->pg->migrations->from_data->migrate;
 
 plugin Minion => {Pg => app->pg};
 
+app->minion->remove_after(86400 * 30);
+app->minion->add_task($_ => sub { shift->finish($_) }) for qw/processed dropped delivered deferred bounce/;
 app->minion->add_task(forward => sub {
-  my ($job, $mail_from, $recipients, $forward_to, $spool) = @_;
+  my ($job, $id, $mail_from, $recipients, $forward_to, $spool) = @_;
   my $time = time;
   # TODO: fail if bad SSL on $domain
   $job->fail("Unable to read $spool") and return unless -f $spool && -r _;
@@ -143,6 +145,9 @@ post '/' => sub {
   my $lookup = $c->lookup($domain, $to, @{$envelope->{to}});
   
   my $email_data = $c->req->params->to_hash->{email};
+  my $mi = Mail::Internet->new;
+  $mi->extract([split /\n/, $email_data]);
+  chomp(my $id = $mi->get('Message-ID'));
 
   # Check DMARC, and if it looks like it's going to fail, build a new email message header
   my $dmarc = Mail::DMARC::PurePerl->new(header_from => $mail_from->host);
@@ -152,8 +157,6 @@ post '/' => sub {
     $mail_from = Mail::Address->new($from_name, "mailroom-dmarc_rejection\@$domain");
     my $to = $c->req->params->to_hash->{to};
     my $subject = $c->req->params->to_hash->{subject};
-    my $mi = Mail::Internet->new;
-    $mi->extract([split /\n/, $email_data]);
     chomp(my $ct = $mi->get('Content-Type'));
     chomp(my $mv = $mi->get('MIME-Version'));
     my $new_header = "From: \"$from_name\" <mailroom-dmarc_rejection\@$domain>\nReply-To: \"$from_name\" <$from_addr>\nTo: $to\nSubject: $subject\n";
@@ -162,17 +165,28 @@ post '/' => sub {
     $email_data = join "\n", $new_header, join("\n", @{$mi->body});
   }
 
-  return $c->render(text => $c->app->log->info(sprintf '[%s] Failed to send: No matches', $domain)->history->[-1]->[-1]) unless keys %$lookup;
+  return $c->render(text => $c->app->log->info(sprintf '[%s] Failed to send: No matches for %s', $domain, $to)->history->[-1]->[-1]) unless keys %$lookup;
 
   #$c->app->log->debug("RCPT TO: %s", join ', ', map { '<'.$_->address.'>' } values %$lookup);
   my $data = Mojo::Asset::File->new(cleanup => 0, tmpdir => $c->app->home->child('spool', 'forward')->make_path);
   $data->add_chunk($email_data);
   if ( $data->size ) {
-    my $id = $c->minion->enqueue(forward => [$mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $data->path] => {queue => $domain});
+    my $id = $c->minion->enqueue(forward => [$id, $mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $data->path] => {queue => $domain});
     $c->render(text => $c->app->log->info(sprintf '%s job %s queued successfully', $domain, $id)->history->[-1]->[-1]);
   } else {
     $c->render(text => $c->app->log->error(sprintf '%s job queued unsuccessfully', $domain)->history->[-1]->[-1], status => 501);
   }
+};
+
+post '/notify' => sub {
+  my $c = shift;
+  my $moniker = $c->app->moniker;
+  my $domain = $c->req->url->to_abs->host;
+  $domain =~ s/^$moniker\.// or return $c->reply->not_found;
+  my $json = $c->req->json;
+  $c->app->log->info(sprintf 'logging %s events', scalar @$json);
+  $c->minion->enqueue($_->{event} => [$_] => {queue => $domain}) for @$json;
+  $c->render(text => 'ok');
 };
 
 # Secure access to the admin ui with Basic authentication
