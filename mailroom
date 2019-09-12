@@ -44,15 +44,15 @@ helper lookup => sub {
   my ($c, $domain, $to) = (shift, shift, shift);
   my %rcpt_to = ();
   foreach my $rcpt_to ( map { Mail::Address->new($to->{$_}||'', $_) } @_ ) {
-    #$c->app->log->debug(">   %s", join ' ', grep { $_ } $rcpt_to->phrase, '<'.$rcpt_to->address.'>');
+    #$c->log->debug(">   %s", join ' ', grep { $_ } $rcpt_to->phrase, '<'.$rcpt_to->address.'>');
     my $aliases = $c->pg->db->select('aliases', ['forward_to'], {-or => [{recipient => $rcpt_to->address}, {recipient => sprintf '*@%s', $rcpt_to->host}]})->arrays->flatten->to_array;
     if ( @$aliases ) {
-      #$c->app->log->debug("?   %s", join ', ', map { join ' ', grep { $_ } $rcpt_to->phrase, "<$_>" } @$aliases);
+      #$c->log->debug("?   %s", join ', ', map { join ' ', grep { $_ } $rcpt_to->phrase, "<$_>" } @$aliases);
       my $lookup = $c->lookup($domain, $to, @$aliases);
       $rcpt_to{$_} = $lookup->{$_} foreach grep { !$rcpt_to{$_} && !$to->{$_} } keys %$lookup;
     } else {
       next if $rcpt_to->host eq $domain;
-      #$c->app->log->debug("<   %s", join ' ', grep { $_ } $rcpt_to->phrase, '<'.$rcpt_to->address.'>');
+      #$c->log->debug("<   %s", join ' ', grep { $_ } $rcpt_to->phrase, '<'.$rcpt_to->address.'>');
       $rcpt_to{$rcpt_to->address} = $rcpt_to;
     }
   }
@@ -80,10 +80,10 @@ app->minion->add_task(forward => sub {
   if ( !ref $resp ) {
     $job->fail(sprintf 'Failed to send: Unexpected return code %s', $resp);
   } elsif ( $resp->error ) {
-    #$job->app->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
+    #$job->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
     $job->fail(sprintf 'Failed to send: %s', $resp->error);
   } else {
-    #$job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
+    #$job->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
     $job->finish('Sent successfully');
     #unlink $spool;
   }
@@ -108,10 +108,10 @@ app->minion->add_task(relay => sub {
   if ( !ref $resp ) {
     $job->fail(sprintf 'Failed to send: Unexpected return code %s', $resp);
   } elsif ( $resp->error ) {
-    #$job->app->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
+    #$job->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
     $job->fail(sprintf 'Failed to send: %s', $resp->error);
   } else {
-    #$job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
+    #$job->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
     $job->finish('Sent successfully');
     unlink $spool;
   }
@@ -126,7 +126,7 @@ post '/' => sub {
 
   # TO DO: Capture this email and send a digest of retrievable SPAM messages to either the intended recipient or the designated admin account
   # Test SPAM: XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X
-  return $c->render(text => $c->app->log->info(sprintf '[%s] Failed to send: SPAM', $domain)->history->[-1]->[-1]) if $c->req->params->to_hash->{spam_score} >= $c->config('sendgrid')->{spam_score_threshold};
+  return $c->render(text => $c->log->info(sprintf '[%s] Failed to send: SPAM', $domain)->history->[-1]->[-1]) if $c->req->params->to_hash->{spam_score} >= $c->config('sendgrid')->{spam_score_threshold};
 
   # The envelope is who the message is being delivered to, meaning only the addresses 
   my $envelope = j($c->req->params->to_hash->{envelope});
@@ -139,9 +139,9 @@ post '/' => sub {
   my $to   = {map { $_->address => $_->phrase } @{$addresses->{to}}, @{$addresses->{cc}}};
 
   my $mail_from = [map { Mail::Address->new($from->{$_}||'', $_) } $envelope->{from}]->[0];
-  #$c->app->log->debug("MAIL FROM: %s", join ' ', grep { $_ } $mail_from->phrase, '<'.$mail_from->address.'>');
+  #$c->log->debug("MAIL FROM: %s", join ' ', grep { $_ } $mail_from->phrase, '<'.$mail_from->address.'>');
 
-  #$c->app->log->debug("rcpt to: %s", join ', ', map { '<'.$_.'>' } @{$envelope->{to}});
+  #$c->log->debug("rcpt to: %s", join ', ', map { '<'.$_.'>' } @{$envelope->{to}});
   my $lookup = $c->lookup($domain, $to, @{$envelope->{to}});
   
   my $email_data = $c->req->params->to_hash->{email};
@@ -165,16 +165,16 @@ post '/' => sub {
     $email_data = join "\n", $new_header, join("\n", @{$mi->body});
   }
 
-  return $c->render(text => $c->app->log->info(sprintf '[%s] Failed to send: No matches for %s', $domain, $to)->history->[-1]->[-1]) unless keys %$lookup;
+  return $c->render(text => $c->log->info(sprintf '[%s] Failed to send: No matches for %s', $domain, $to)->history->[-1]->[-1]) unless keys %$lookup;
 
-  #$c->app->log->debug("RCPT TO: %s", join ', ', map { '<'.$_->address.'>' } values %$lookup);
+  #$c->log->debug("RCPT TO: %s", join ', ', map { '<'.$_->address.'>' } values %$lookup);
   my $data = Mojo::Asset::File->new(cleanup => 0, tmpdir => $c->app->home->child('spool', 'forward')->make_path);
   $data->add_chunk($email_data);
   if ( $data->size ) {
     my $id = $c->minion->enqueue(forward => [$id, $mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $data->path] => {queue => $domain});
-    $c->render(text => $c->app->log->info(sprintf '%s job %s queued successfully', $domain, $id)->history->[-1]->[-1]);
+    $c->render(text => $c->log->info(sprintf '%s job %s queued successfully', $domain, $id)->history->[-1]->[-1]);
   } else {
-    $c->render(text => $c->app->log->error(sprintf '%s job queued unsuccessfully', $domain)->history->[-1]->[-1], status => 501);
+    $c->render(text => $c->log->error(sprintf '%s job queued unsuccessfully', $domain)->history->[-1]->[-1], status => 501);
   }
 };
 
@@ -184,7 +184,7 @@ post '/notify' => sub {
   my $domain = $c->req->url->to_abs->host;
   $domain =~ s/^$moniker\.// or return $c->reply->not_found;
   my $json = $c->req->json;
-  $c->app->log->info(sprintf 'logging %s events', scalar @$json);
+  $c->log->info(sprintf 'logging %s events', scalar @$json);
   $c->minion->enqueue($_->{event} => [$_] => {queue => $domain}) for @$json;
   $c->render(text => 'ok');
 };
