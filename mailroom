@@ -7,16 +7,12 @@ use Mojolicious::Lite;
 #     https://www.libsrs2.org/srs/srs.pdf
 #   Multi-tenancy (minion admin ui, mainly)
 #     Handle with queues (but how to grant very auth to various queue)
-#   Command: remove alias
 #   Command: add domain to sendgrid (requires sendgrid api)
 #   Should each domain have its own sendgrid api?
 #   Web: add, lookup, remove, add domain
-#   X Better logging
-#   X Purge finished jobs
 #   Test failed jobs
 #   X Any way to link jobs / logs here with logs in sendgrid activity?
 #   Command: Authenticated SMTP for sending as
-#   X Setup mailroom and minion to auto start with systemd
 #   On Spam: enqueue it and fail it for digesting later
 #   Test wildcard recipient
 
@@ -25,19 +21,23 @@ use lib 'lib';
 use Mojo::JSON 'j';
 use Mojo::File qw/tempfile path/;
 use Mojo::Util 'md5_sum';
-use Mojo::Pg;
+#use Mojo::Pg;
+use Mojo::SQLite;
 use Mojo::SMTP::Client;
 use Minion;
 
 use Mail::Address;
 use Mail::DMARC::PurePerl;
 use Mail::Internet;
+use Text::Unidecode;
+use Time::HiRes qw(gettimeofday tv_interval);
 
 push @{app->commands->namespaces}, 'Mailroom::Command';
 
 plugin 'Config' => {default => {remove_after_days => 30}};
 
-helper pg     => sub { state $pg = Mojo::Pg->new(app->config('pg')) };
+my ($backend, $conn_str) = app->config('db')->@*;
+helper db     => sub { state $db = "Mojo::$backend"->new($conn_str) };
 helper smtp   => sub { state $smtp = Mojo::SMTP::Client->new(address => app->config('sendgrid')->{host} || 'smtp.sendgrid.net', autodie => 0) };
 helper mx     => sub { my $c = shift; my $domain = $c->req->url->to_abs->host; my $moniker = $c->app->moniker; $domain =~ s/^$moniker\.// and return $domain };
 helper lookup => sub {
@@ -45,7 +45,7 @@ helper lookup => sub {
   my %rcpt_to = ();
   foreach my $rcpt_to ( map { Mail::Address->new($to->{$_}||'', $_) } @_ ) {
     #$c->log->debug(">   %s", join ' ', grep { $_ } $rcpt_to->phrase, '<'.$rcpt_to->address.'>');
-    my $aliases = $c->pg->db->select('aliases', ['forward_to'], {-or => [{recipient => $rcpt_to->address}, {recipient => sprintf '*@%s', $rcpt_to->host}]})->arrays->flatten->to_array;
+    my $aliases = $c->db->db->select('aliases', ['forward_to'], {-or => [{recipient => $rcpt_to->address}, {recipient => sprintf '*@%s', $rcpt_to->host}]})->arrays->flatten->to_array;
     if ( @$aliases ) {
       #$c->log->debug("?   %s", join ', ', map { join ' ', grep { $_ } $rcpt_to->phrase, "<$_>" } @$aliases);
       my $lookup = $c->lookup($domain, $to, @$aliases);
@@ -59,17 +59,17 @@ helper lookup => sub {
   return \%rcpt_to;
 };
 
-app->pg->migrations->from_data->migrate;
+app->db->migrations->from_data->migrate;
 
-plugin Minion => {Pg => app->pg};
+plugin Minion => {$backend => app->db};
 
 app->minion->remove_after(app->config('remove_after_days') * 86_400);
 app->minion->add_task($_ => sub { shift->finish($_) }) for qw/processed dropped delivered deferred bounce/;
 app->minion->add_task(forward => sub {
-  my ($job, $id, $mail_from, $recipients, $forward_to, $spool) = @_;
-  my $time = time;
+  my ($job, $request_id, $mail_from, $recipients, $forward_to, $spool) = @_;
+  #my $time = time;
   # TODO: fail if bad SSL on $domain
-  $job->fail("Unable to read $spool") and return unless -f $spool && -r _;
+  $job->fail($job->app->log->error(sprintf "[%s] [%s] Unable to read $spool", $request_id, $job->info->{queue})) and return unless -f $spool && -r _;
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
     from => $mail_from,
@@ -78,13 +78,13 @@ app->minion->add_task(forward => sub {
     quit => 1,
   );
   if ( !ref $resp ) {
-    $job->fail(sprintf 'Failed to send: Unexpected return code %s', $resp);
+    $job->fail($job->app->log->error(sprintf '[%s] [%s] Failed to send %s: Unexpected return code %s', $request_id, $job->info->{queue}, $spool, $resp));
   } elsif ( $resp->error ) {
-    #$job->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
-    $job->fail(sprintf 'Failed to send: %s', $resp->error);
+    #$job->app->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
+    $job->fail($job->app->log->error(sprintf '[%s] [%s] Failed to send %s: %s', $request_id, $job->info->{queue}, $spool, $resp->error));
   } else {
-    #$job->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
-    $job->finish('Sent successfully');
+    #$job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
+    $job->finish($job->app->log->info(sprintf '[%s] [%s] Sent %s successfully: %s (%s)', $request_id, $job->info->{queue}, $spool, to_str($recipients), to_str($forward_to)));
     #unlink $spool;
   }
   #sleep 60;
@@ -106,27 +106,29 @@ app->minion->add_task(relay => sub {
     quit => 1,
   );
   if ( !ref $resp ) {
-    $job->fail(sprintf 'Failed to send: Unexpected return code %s', $resp);
+    $job->fail($job->app->log->error(sprintf 'Failed to send: Unexpected return code %s', $resp));
   } elsif ( $resp->error ) {
-    #$job->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
-    $job->fail(sprintf 'Failed to send: %s', $resp->error);
+    #$job->app->log->error(sprintf '[%s(%s)] Failed to send: %s', $domain, $id, $resp->error);
+    $job->fail($job->app->log->error(sprintf 'Failed to send: %s', $resp->error));
   } else {
-    #$job->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
-    $job->finish('Sent successfully');
+    #$job->app->log->info(sprintf '[%s(%s)] Sent successfully', $domain, $id);
+    $job->finish($job->app->log->info('Sent successfully'));
     unlink $spool;
   }
 });
 
 post '/' => sub {
   my $c = shift->render_later;
+  return $c->reply->not_found unless $c->req->params->to_hash->{envelope};
 
   my $moniker = $c->app->moniker;
   my $domain = $c->req->url->to_abs->host;
   $domain =~ s/^$moniker\.// or return $c->reply->not_found;
+  $c->log->info(sprintf '[%s] New incoming forward message, envelope: %s', $domain, $c->req->params->to_hash->{envelope});
 
   # TO DO: Capture this email and send a digest of retrievable SPAM messages to either the intended recipient or the designated admin account
   # Test SPAM: XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X
-  return $c->render(text => $c->log->info(sprintf '[%s] Failed to send: SPAM', $domain)->history->[-1]->[-1]) if $c->req->params->to_hash->{spam_score} >= $c->config('sendgrid')->{spam_score_threshold};
+  return $c->render(text => $c->log->info(sprintf '[%s] Failed to send: SPAM', $domain)->history->[-1]->[-1]) if $c->req->params->to_hash->{spam_score} && $c->req->params->to_hash->{spam_score} >= $c->config('sendgrid')->{spam_score_threshold};
 
   # The envelope is who the message is being delivered to, meaning only the addresses 
   my $envelope = j($c->req->params->to_hash->{envelope});
@@ -150,8 +152,8 @@ post '/' => sub {
   chomp(my $id = $mi->get('Message-ID'));
 
   # Check DMARC, and if it looks like it's going to fail, build a new email message header
-  my $dmarc = Mail::DMARC::PurePerl->new(header_from => $mail_from->host);
-  if ( $dmarc->validate->disposition ne 'none' ) {
+  my $dmarc = Mail::DMARC::PurePerl->new(header_from => $mail_from->host) if $mail_from->host;
+  if ( $dmarc && $dmarc->validate->disposition ne 'none' ) {
     my $from_name = $addresses->{from}->[0]->phrase;
     my $from_addr = $addresses->{from}->[0]->address;
     $mail_from = Mail::Address->new($from_name, "mailroom-dmarc_rejection\@$domain");
@@ -165,16 +167,19 @@ post '/' => sub {
     $email_data = join "\n", $new_header, join("\n", @{$mi->body});
   }
 
-  return $c->render(text => $c->log->info(sprintf '[%s] Failed to send: No matches for %s', $domain, $to)->history->[-1]->[-1]) unless keys %$lookup;
+  return $c->render(text => $c->log->info(sprintf '[%s] Failed to queue: No matches for %s', $domain, to_str($to))->history->[-1]->[-1]) unless keys %$lookup;
 
   #$c->log->debug("RCPT TO: %s", join ', ', map { '<'.$_->address.'>' } values %$lookup);
   my $data = Mojo::Asset::File->new(cleanup => 0, tmpdir => $c->app->home->child('spool', 'forward')->make_path);
-  $data->add_chunk($email_data);
+  my $unidecode = 0;
+  eval { $data->add_chunk($email_data); };
+  $data->add_chunk(unidecode $email_data) and $unidecode=1 and $c->log->warn(sprintf '[%s] unidecoded', $domain) if $@;
   if ( $data->size ) {
-    my $id = $c->minion->enqueue(forward => [$id, $mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $data->path] => {queue => $domain});
-    $c->render(text => $c->log->info(sprintf '%s job %s queued successfully', $domain, $id)->history->[-1]->[-1]);
+    my $id = $c->minion->enqueue(forward => [$c->req->request_id, $mail_from->address, $envelope->{to}, [map { $_->address } values %$lookup], $data->path] => {queue => $domain});
+    $c->minion->job($id)->note(size => $data->size, unidecode => $unidecode);
+    $c->render(text => $c->log->info(sprintf '[%s] job %s (%s bytes) queued %s successfully: %s', $domain, $id, $data->size, $data->path, to_str($envelope->{to}))->history->[-1]->[-1]);
   } else {
-    $c->render(text => $c->log->error(sprintf '%s job queued unsuccessfully', $domain)->history->[-1]->[-1], status => 501);
+    $c->render(text => $c->log->error(sprintf '[%s] job queued unsuccessfully', $domain)->history->[-1]->[-1], status => 501);
   }
 };
 
@@ -184,7 +189,7 @@ post '/notify' => sub {
   my $domain = $c->req->url->to_abs->host;
   $domain =~ s/^$moniker\.// or return $c->reply->not_found;
   my $json = $c->req->json;
-  $c->log->info(sprintf 'logging %s events', scalar @$json);
+  $c->log->info(sprintf 'logging %s /notify events', scalar @$json);
   $c->minion->enqueue($_->{event} => [$_] => {queue => $domain}) for @$json;
   $c->render(text => 'ok');
 };
@@ -201,6 +206,8 @@ plugin 'Minion::Admin' => {route => $under};
 
 app->start;
 
+sub to_str { ref $_[0] ? j($_[0]) : $_[0] }
+
 __DATA__
 
 @@ migrations
@@ -209,3 +216,64 @@ create table aliases (id serial primary key, recipient varchar(255), forward_to 
 
 -- 1 down
 drop table if exists aliases;
+
+-- 2 up
+insert into aliases (recipient, forward_to) values ('b@adams.fm', 'becky.adams5313@gmail.com');
+insert into aliases (recipient, forward_to) values ('becky@adams.fm', 'becky.adams5313@gmail.com');
+insert into aliases (recipient, forward_to) values ('bs@adams.fm', 'becky.adams5313@gmail.com');
+insert into aliases (recipient, forward_to) values ('bs@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('e@adams.fm', 'eva.adams@gmail.com');
+insert into aliases (recipient, forward_to) values ('eva@adams.fm', 'eva.adams@gmail.com');
+insert into aliases (recipient, forward_to) values ('l@adams.fm', 'lee.adams.nu@gmail.com');
+insert into aliases (recipient, forward_to) values ('lee@adams.fm', 'lee.adams.nu@gmail.com');
+insert into aliases (recipient, forward_to) values ('m@adams.fm', 'becky.adams5313+mikayla@gmail.com');
+insert into aliases (recipient, forward_to) values ('m@adams.fm', 's1037989+mikayla@gmail.com');
+insert into aliases (recipient, forward_to) values ('mikayla@adams.fm', 'becky.adams5313+mikayla@gmail.com');
+insert into aliases (recipient, forward_to) values ('mikayla@adams.fm', 's1037989+mikayla@gmail.com');
+insert into aliases (recipient, forward_to) values ('rebecca@adams.fm', 'becky.adams5313@gmail.com');
+insert into aliases (recipient, forward_to) values ('s1037989@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('s@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('sb@adams.fm', 'becky.adams5313@gmail.com');
+insert into aliases (recipient, forward_to) values ('sb@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stef@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stefan@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stefen@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stephan@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stephen@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stevan@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('steve@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('steven@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('s@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stef@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stefan@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stefen@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stephan@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stephen@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stevan@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('steve@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('steven@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('chipper@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('help@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('info@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('support@be.gl', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('s@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stef@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stefan@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stefen@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stephan@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stephen@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('stevan@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('steve@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('steven@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('sma@sma.holdings', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('becky@books4hearts.com', 'beckyadams5313@gmail.com');
+insert into aliases (recipient, forward_to) values ('kitchen@adams.fm', 'egu68akfaj86@hpeprint.com');
+insert into aliases (recipient, forward_to) values ('smaholdings@adams.fm', 's1037989@gmail.com');
+insert into aliases (recipient, forward_to) values ('theresia@sma.holdings', 'theresia.thompson@gmail.com');
+insert into aliases (recipient, forward_to) values ('rylie@adams.fm', 'becky.adams5313+rylie@gmail.com');
+insert into aliases (recipient, forward_to) values ('rylie@adams.fm', 's1037989+rylie@gmail.com');
+insert into aliases (recipient, forward_to) values ('r@adams.fm', 'becky.adams5313+rylie@gmail.com');
+insert into aliases (recipient, forward_to) values ('r@adams.fm', 's1037989+rylie@gmail.com');
+
+-- 2 down
+delete from aliases;

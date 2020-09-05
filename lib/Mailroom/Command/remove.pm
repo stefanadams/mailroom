@@ -7,7 +7,7 @@ has usage => sub { shift->extract_usage };
 sub run {
   my ($self, $recipient) = @_;
 
-  $self->app->pg->db->delete('aliases', {recipient => $recipient});
+  $self->app->db->db->delete('aliases', {recipient => $recipient});
 }
 
 1;

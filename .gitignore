@@ -1,1 +1,9 @@
 *.conf
+*.db
+*.db-*
+spool
+local
+log
+backup
+old
+cpanfile.snapshot

@@ -1,1 +1,11 @@
-requires 'Mojolicious', '8.24';
+requires 'Mojolicious', '8.58';
+requires 'Minion', '10.13';
+requires 'Minion::Backend::SQLite', '5.0.3';
+requires 'Mojo::SQLite', '3.004';
+requires 'Mojo::SMTP::Client', '0.18';
+requires 'Mojo::Sendgrid', '0.05';
+requires 'Mail::Address', '2.21';
+requires 'Mail::DMARC::PurePerl', '1.20200214';
+requires 'DBI', '1.643';
+requires 'Text::Unidecode', '1.30';
+#requires 'Mojo::Pg', '4.19';
