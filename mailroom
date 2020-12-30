@@ -58,6 +58,22 @@ helper lookup => sub {
   }
   return \%rcpt_to;
 };
+helper smtp_ping => sub {
+  my $c = shift;
+  my $domains = $c->minion->backend->sqlite->db->query(q(select distinct substr(recipient, instr(recipient, '@')+1) as domain from aliases))->hashes->map(sub{$_->{domain}})->to_array;
+  my @domains = @_ ? @_ : $domains->@*;
+  foreach my $domain (@domains) {
+    my $resp = $c->smtp->send(
+      auth => {type => 'login', login => 'apikey', password => $c->config('sendgrid')->{apikey}},
+      from => "null\@$domain",
+      to => "null\@$domain",
+      data => "From: null\@$domain\r\nTo: null\@$domain\r\nSubject: smtp_ping\r\n\r\nSent from Mailroom",
+      quit => 1,
+    );
+    chomp($resp);
+    $c->log->info(sprintf 'sent status-check to %s: %s', "null\@$domain", $resp);
+  }
+};
 
 app->db->migrations->from_data->migrate;
 
@@ -69,6 +85,7 @@ app->minion->add_task(forward => sub {
   my ($job, $request_id, $mail_from, $recipients, $forward_to, $spool) = @_;
   #my $time = time;
   # TODO: fail if bad SSL on $domain
+  return $job->finish($job->app->log->info(sprintf '[%s] [%s] finished status-check', $request_id, $job->info->{queue})) unless $forward_to;
   $job->fail($job->app->log->error(sprintf "[%s] [%s] Unable to read $spool", $request_id, $job->info->{queue})) and return unless -f $spool && -r _;
   my $resp = $job->app->smtp->send(
     auth => {type => 'login', login => 'apikey', password => $job->app->config('sendgrid')->{apikey}},
@@ -159,15 +176,18 @@ post '/' => sub {
     $mail_from = Mail::Address->new($from_name, "mailroom-dmarc_rejection\@$domain");
     my $to = $c->req->params->to_hash->{to};
     my $subject = $c->req->params->to_hash->{subject};
-    chomp(my $ct = $mi->get('Content-Type'));
-    chomp(my $mv = $mi->get('MIME-Version'));
+    chomp(my $ct = $mi->get('Content-Type') || '');
+    chomp(my $mv = $mi->get('MIME-Version') || '');
     my $new_header = "From: \"$from_name\" <mailroom-dmarc_rejection\@$domain>\nReply-To: \"$from_name\" <$from_addr>\nTo: $to\nSubject: $subject\n";
     $new_header .= "MIME-Version: $mv\n" if $mv;
     $new_header .= "Content-Type: $ct\n" if $ct;
     $email_data = join "\n", $new_header, join("\n", @{$mi->body});
   }
 
-  return $c->render(text => $c->log->info(sprintf '[%s] Failed to queue: No matches for %s', $domain, to_str($to))->history->[-1]->[-1]) unless keys %$lookup;
+  unless (keys %$lookup) {
+    $c->minion->enqueue(forward => [$c->req->request_id], {queue => $domain});
+    return $c->render(text => $c->log->info(sprintf '[%s] No matches for %s -- queued status-check', $domain, to_str($to))->history->[-1]->[-1]);
+  }
 
   #$c->log->debug("RCPT TO: %s", join ', ', map { '<'.$_->address.'>' } values %$lookup);
   my $data = Mojo::Asset::File->new(cleanup => 0, tmpdir => $c->app->home->child('spool', 'forward')->make_path);
@@ -181,6 +201,16 @@ post '/' => sub {
   } else {
     $c->render(text => $c->log->error(sprintf '[%s] job queued unsuccessfully', $domain)->history->[-1]->[-1], status => 501);
   }
+};
+
+get '/status' => sub { shift->redirect_to(app->config->{external_status_page}) };
+get '/status/#domain/:seconds/:task' => {seconds => 21_600, task => 'forward'} => sub {
+  my $c = shift;
+  #$c->minion->backend->sqlite->db->dbh->sqlite_trace(sub { $c->log->debug(shift) });
+  my $total = $c->minion->backend->sqlite->db->query(q(select count(*) from minion_jobs where queue = ? and task = ? and finished > datetime('now', ?)), $c->param('domain'), $c->param('task'), sprintf '-%d seconds', $c->param('seconds'))->array->[0];
+  #$c->minion->backend->sqlite->db->dbh->sqlite_trace(undef);
+  return $c->reply->exception(sprintf 'no %s mails for %s have fininshed in the past %s seconds', $c->param('task'), $c->param('domain'), $c->param('seconds')) unless $total;
+  $c->render(text => $total);
 };
 
 post '/notify' => sub {
@@ -197,12 +227,16 @@ post '/notify' => sub {
 # Secure access to the admin ui with Basic authentication
 my $under = under '/minion' => sub {
   my $c = shift;
-  return 1 if $c->req->url->to_abs->userinfo eq $c->config('admin_ui');
+  return 1 if defined $c->req->url->to_abs->userinfo && $c->req->url->to_abs->userinfo eq app->config->{admin_ui};
   $c->res->headers->www_authenticate('Basic');
-  $c->render(text => 'Authentication required!', status => 401);
+  $c->redirect_to(text => 'authentication failed', status => 401);
   return undef;
 };
-plugin 'Minion::Admin' => {route => $under};
+plugin 'Minion::Admin' => {route => $under, return_to => 'status'};
+
+Mojo::IOLoop->recurring(3600 => sub {
+  app->smtp_ping unless app->minion->backend->sqlite->db->query(q(select count(*) from minion_jobs where task = 'forward' and finished > datetime('now', '-3600 seconds')))->array->[0];
+});
 
 app->start;
 
