@@ -229,7 +229,7 @@ my $under = under '/minion' => sub {
   my $c = shift;
   return 1 if defined $c->req->url->to_abs->userinfo && $c->req->url->to_abs->userinfo eq app->config->{admin_ui};
   $c->res->headers->www_authenticate('Basic');
-  $c->redirect_to(text => 'authentication failed', status => 401);
+  $c->render(text => 'authentication failed', status => 401);
   return undef;
 };
 plugin 'Minion::Admin' => {route => $under, return_to => 'status'};
