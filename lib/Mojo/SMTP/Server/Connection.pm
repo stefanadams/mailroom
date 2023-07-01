@@ -1,6 +1,7 @@
 package Mojo::SMTP::Server::Connection;
 use Mojo::Base 'Mojo::EventEmitter';
 
+use Mail::Address;
 use Mojo::Log;
 use Mojo::Home;
 use Mojo::File 'path';
@@ -8,6 +9,8 @@ use Mojo::Asset::File;
 use Mojo::Util qw/b64_decode b64_encode md5_sum/;
 
 #use Crypt::Password ();
+
+use constant DEBUG => $ENV{MAILROOM_DEBUG} // 0;
 
 has [qw/server stream id _cmd helo username password mail_from data/];
 has rcpt_to => sub { [] };
@@ -39,9 +42,9 @@ sub auth {
   my $self = shift;
   return 0 unless $self->username && $self->password;
   #$self->server->pg->db->select('auth', ['username'], {username => $self->username, password => Crypt::Password::password($self->password)})->rows;
-  #warn Data::Dumper::Dumper($self->server->config->{auth});
-  return 0 unless $self->server->config->{auth}->{$self->username};
-  return $self->server->config->{auth}->{$self->username} eq $self->password ? 1 : 0;
+  #warn Data::Dumper::Dumper($self->server->config->{mailroom}->{smtp_server}->{auth});
+  return 0 unless $self->server->config->{mailroom}->{smtp_server}->{auth}->{$self->username};
+  return $self->server->config->{mailroom}->{smtp_server}->{auth}->{$self->username} eq $self->password ? 1 : 0;
 }
 
 sub cmd {
@@ -59,8 +62,12 @@ sub queue {
   my $self = shift;
   if ( $self->auth ) {
     if ( $self->mail_from && @{$self->rcpt_to} && $self->data ) {
-      my $id = $self->server->minion->enqueue(relay => [$self->mail_from, $self->rcpt_to, $self->data->path]);
-      return $self->write(250, sprintf 'OK message queued as %s', $id)->reset;
+      my $from = ((Mail::Address->parse($self->mail_from))[0]);
+      my $mx = $from->host;
+      my $id = $self->server->minion->enqueue(relay => [$self->mail_from, $self->rcpt_to, [$self->data->path]] => {queue => $mx});
+      my $finish = $self->write(250, sprintf 'OK message queued as %s', $id)->reset;
+      $self->server->minion->perform_jobs({queues => [$mx]}) if DEBUG;
+      return $finish;
     } else {
       return $self->write(530, 'bad')->finish;
     }

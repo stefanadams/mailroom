@@ -1,0 +1,3 @@
+% layout 'default', title => 'New User';
+<h2>New User</h2>
+%= include 'users/_form', caption => 'Add', target => 'store_user'

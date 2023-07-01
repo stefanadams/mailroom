@@ -8,14 +8,14 @@ use Mojo::SMTP::Server::Connection;
 use POSIX qw/setuid setgid/;
 
 has address => '0.0.0.0';
-has port => '25';
+has port => '1025';
 
 has 'config';
 has minion => sub { die };
 
 sub start {
   my $self = shift;
-  warn "User or Group not defined in configuration\n" and return undef unless $self->config->{user} && $self->config->{group};
+  #warn "User or Group not defined in configuration\n" and return undef unless $self->config->{user} && $self->config->{group};
   my $server = Mojo::IOLoop->server({address => $self->address, port => $self->port}, sub {
     my ($loop, $stream, $id) = @_;
     print "New connection\n";
@@ -23,7 +23,7 @@ sub start {
     Mojo::SMTP::Server::Connection->new(server => $self, stream => $stream, id => $id);
   });
   print "Server started\n";
-  Mojo::IOLoop->next_tick(sub { setgid($self->config->{user}); setuid($self->config->{group}); });
+  Mojo::IOLoop->next_tick(sub { setgid($self->config->{user}); setuid($self->config->{group}); }) if $self->config->{user} && $self->config->{group};
   Mojo::IOLoop->start unless Mojo::IOLoop->is_running;
 }
 

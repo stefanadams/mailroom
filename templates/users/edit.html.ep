@@ -1,0 +1,4 @@
+% layout 'default', title => 'Edit User';
+<h2>Edit User</h2>
+%= include 'users/_form', caption => 'Update', target => 'update_user'
+%= button_to Remove => remove_user => {user_id => $user->{user_id}}

@@ -1,0 +1,17 @@
+% layout 'mojo-templates', title => 'Users';
+% content headline => '';
+% content main_form => '';
+% content overlay => begin
+<h2>Manage Users</h2>
+% end
+
+% content_for solid => begin
+<h2>Users</h2>
+%= link_to 'New User' => 'create_user'
+% for my $user (@$users) {
+  <h2><%= link_to $user->{name} => show_user => {user_id => $user->{user_id}} %></h2>
+  <p>
+    %= $user->{name}
+  </p>
+% }
+% end

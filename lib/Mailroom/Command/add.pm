@@ -7,7 +7,7 @@ has usage => sub { shift->extract_usage };
 sub run {
   my ($self, $recipient, $forward_to) = @_;
 
-  $self->app->db->db->insert('aliases', {recipient => $recipient, forward_to => $_}) and say "$recipient => $_" foreach split /,/, $forward_to;
+  $self->app->model->aliases->backend->add($recipient, $forward_to) and say "$recipient => $_" foreach split /,/, $forward_to;
 }
 
 1;

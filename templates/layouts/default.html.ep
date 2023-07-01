@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><%= title %></title>
+    <style>
+      label.field-with-error { color: #dd7e5e }
+      input.field-with-error { background-color: #fd9e7e }
+    </style>
+    %= stylesheet '//maxcdn.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css'
+    %= stylesheet '//yegor256.github.io/tacit/tacit.min.css'
+    %= javascript '//code.jquery.com/jquery-3.4.1.slim.min.js'
+    %= javascript '//cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js'
+    %= javascript '//maxcdn.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js'
+  </head>
+  <body>
+    <%= content %>
+  </body>
+</html>

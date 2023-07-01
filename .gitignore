@@ -1,9 +1,11 @@
 *.conf
-*.db
-*.db-*
+*.db*
+*.gz
+requests
 spool
 local
 log
+tmp
 backup
 old
 cpanfile.snapshot

@@ -1,0 +1,39 @@
+%= form_for $target => begin
+
+  % if (session 'user.tpa_id' eq 'rq') {
+    % my $tpas = model->tpas->all;
+    %= label_for tpa_id => 'TPA'
+    <br>
+    %= select_field tpa_id => [map {[$tpas->{name} => $tpas->{tpa_id}, ($tpas->{tpa_id} eq $user->{tpa_id} ? (selected => 'selected') : ())]} keys %$tpas]
+  % }
+  % else {
+    %= hidden_field tpa_id => session 'user.tpa_id'
+  % }
+
+  %= label_for admin => 'Admin?'
+  <br>
+  %= check_box admin => 1, ($user->{admin} ? (checked => undef) : ())
+  <br>
+
+  %= label_for user_id => 'Username'
+  <br>
+  %= text_field user_id => $user->{user_id}
+  <br>
+
+  %= label_for password => 'Password'
+  <br>
+  %= password_field password => $user->{password}//''
+  <br>
+
+  %= label_for email => 'Email'
+  <br>
+  %= email_field email => $user->{email}
+  <br>
+
+  %= label_for name => 'Full Name'
+  <br>
+  %= text_field name => $user->{name}
+  <br>
+
+  %= submit_button $caption
+% end
