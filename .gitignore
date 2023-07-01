@@ -2,6 +2,7 @@
 *.db*
 *.gz
 requests
+tx
 spool
 local
 log

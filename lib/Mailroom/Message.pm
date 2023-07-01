@@ -54,7 +54,8 @@ sub dmarc ($self) {
 
 sub new {
   my $self = shift->SUPER::new(@_);
-  #warn Mojo::Util::dumper($self->param);
+  #warn Mojo::Util::dumper($self->param) if DEBUG;
+  #warn Mojo::Util::dumper($self->router) if DEBUG;
   return undef unless $self->mx && $self->router;
   return undef unless $self->email;
   ### $self->message_id;

@@ -57,11 +57,11 @@ sub from_mailroom ($self) {
 
 sub new {
   my $self = shift->SUPER::new(@_);
-  #warn Mojo::Util::dumper($self->to);
+  #warn Mojo::Util::dumper($self->to) if DEBUG;
   return unless $self->env_from && $self->env_to;
   $self->rewrite_to($self->_build_map($self->to));
   $self->rewrite_cc($self->_build_map($self->cc));
-  #warn Mojo::Util::dumper($self->to);
+  #warn Mojo::Util::dumper($self->to) if DEBUG;
   return $self;
 }
 

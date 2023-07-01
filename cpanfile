@@ -1,4 +1,4 @@
-requires 'Mojolicious', '9.31';
+requires 'Mojolicious', '9.33';
 requires 'Mojo::SQLite', '3.004';
 requires 'Minion', '10.25';
 requires 'Minion::Backend::SQLite', '5.0.3';

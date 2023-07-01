@@ -1,10 +1,11 @@
 use Mojo::Base -strict;
 
 BEGIN {
-  $ENV{MAILROOM_DMARC}     //= 1;
-  $ENV{MAILROOM_DEBUG}     //= 0;
-  $ENV{MAILROOM_LOG_FILE}  //= '';
-  $ENV{MAILROOM_LOG_LEVEL} //= 'warn';
+  $ENV{MAILROOM_DMARC}      //= 1;
+  $ENV{MAILROOM_DEBUG}      //= 0;
+  $ENV{MAILROOM_CAPTURE_TX} //= 0;
+  $ENV{MAILROOM_LOG_FILE}   //= '';
+  $ENV{MAILROOM_LOG_LEVEL}  //= 'warn';
 }
 
 use Mojo::File qw(curfile tempdir);

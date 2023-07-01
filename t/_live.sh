@@ -7,8 +7,8 @@ ehlo ${2##*@}
 mail from: $1
 rcpt to: $2
 data
-From: $1
-To: $2
+From: <$1>
+To: $2 <$2>
 Subject: $3
 
 $4

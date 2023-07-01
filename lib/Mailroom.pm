@@ -18,7 +18,7 @@ sub startup ($self) {
 
   my $config = $self->plugin('Config' => {default => {remove_after_days => 30}});
 
-  $self->secrets($config->{secrets} || [__FILE__]);
+  $self->secrets([defined $config->{secrets} && ref $config->{secrets} eq 'ARRAY' && scalar $config->{secrets}->@* ? $config->{secrets}->@* : __FILE__]);
   $self->moniker($config->{moniker}) if $config->{moniker};
 
   $self->helper(model      => sub { state $model = Mailroom::Model->new($config->{backend})->app($self) });
@@ -28,9 +28,10 @@ sub startup ($self) {
 
   $self->plugin(Minion => $self->app->model->backend->to_hash);
   $self->plugin('Mailroom::Task::Mailroom');
-    $self->plugin('CaptureTX' => {
+  $self->plugin('CaptureTX' => {
     skip_cb => sub ($app, $tx, $stream, $bytes) {
-      substr($bytes, 0, 26) eq 'GET /minion/stats HTTP/1.1';
+      return 1 if substr($bytes, 0, 10) eq 'GET /admin';
+      return 1 if substr($bytes, 0, 12) eq 'HEAD /status';
     }
   });
 
