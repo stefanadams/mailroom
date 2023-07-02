@@ -1,10 +1,13 @@
 POST / HTTP/1.1
 Connection: upgrade
 Host: mailroom.examp.le
+X-Connection-Id: abc
 X-Forwarded-Host: mailroom.examp.le
 X-Forwarded-Server: mailroom.examp.le
 X-Forwarded-Proto: http
 X-Forwarded-For: 1.2.3.4, 2.3.4.5
+X-Mx: examp.le
+X-Request-Id: 123
 Content-Length: 3173
 Accept-Encoding: gzip
 Content-Type: multipart/form-data; boundary=xYzZY

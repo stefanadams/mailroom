@@ -27,7 +27,7 @@ subtest 'ping' => sub {
 };
 
 subtest 'forward' => sub {
-  $t->app->minion->enqueue(forward => ['test@sample.com', 'c@c.com', 'test data'] => {queue => 'sample.com'});
+  $t->app->minion->enqueue(forward => ['test@sample.com', 'c@c.com', data => 'test data'] => {queue => 'sample.com'});
   $t->app->minion->perform_jobs({queues => ['sample.com']});
   is_deeply $t->app->minion->jobs->next->{notes}, {
     send => [
@@ -38,14 +38,14 @@ subtest 'forward' => sub {
       },
       "from" => "test\@sample.com",
       "to" => ["c\@c.com"],
-      "data" => "test data",
+      "data" => "test data ... (9 total bytes)",
       "quit" => 1,
     ]
   };
 };
 
 subtest 'relay' => sub {
-  $t->app->minion->enqueue(relay => ['test@sample.com', 'a@a.com, b@b.com', 'test data'] => {queue => 'sample.com'});
+  $t->app->minion->enqueue(relay => ['test@sample.com', 'a@a.com, b@b.com', data => 'test data'] => {queue => 'sample.com'});
   $t->app->minion->perform_jobs({queues => ['sample.com']});
   is_deeply $t->app->minion->jobs->next->{notes}, {
     send => [
@@ -56,7 +56,7 @@ subtest 'relay' => sub {
       },
       "from" => "test\@sample.com",
       "to" => ["a\@a.com", "b\@b.com"],
-      "data" => "test data",
+      "data" => "test data ... (9 total bytes)",
       "quit" => 1,
     ]
   };

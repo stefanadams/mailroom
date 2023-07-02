@@ -4,6 +4,8 @@ use Mojo::Base -base, -signatures;
 use List::Util qw(pairs);
 use Mail::Address;
 
+use constant DEBUG => $ENV{MAILROOM_DEBUG} // 0;
+
 has config => undef, weak => 1;
 has db => undef, weak => 1;
 has mx => undef;
@@ -15,8 +17,6 @@ has from => sub ($self) { ((Mail::Address->parse($self->param->{from} || $self->
 has to => sub ($self) { [Mail::Address->parse($self->param->{to} || join ', ', $self->env_to->@*)] };
 has cc => sub ($self) { [Mail::Address->parse($self->param->{cc} || join ', ', $self->env_cc->@*)] };
 has 'reply_to';
-
-use constant DEBUG => $ENV{MAILROOM_DEBUG} // 0;
 
 sub format ($self, $field) {
   if ($field eq 'from') {
@@ -57,11 +57,11 @@ sub from_mailroom ($self) {
 
 sub new {
   my $self = shift->SUPER::new(@_);
-  #warn Mojo::Util::dumper($self->to) if DEBUG;
+  #warn Mojo::Util::dumper({env_to => $self->env_to, to => $self->to}) if DEBUG;
   return unless $self->env_from && $self->env_to;
   $self->rewrite_to($self->_build_map($self->to));
   $self->rewrite_cc($self->_build_map($self->cc));
-  #warn Mojo::Util::dumper($self->to) if DEBUG;
+  #warn Mojo::Util::dumper({env_to => $self->env_to, to => $self->to}) if DEBUG;
   return $self;
 }
 
@@ -85,7 +85,7 @@ sub _lookup_config ($self, $address) {
   my $user = $address->user;
   foreach (pairs @$config) {
     my ($k, $v) = ($_->key, $_->value);
-    return $v if $user eq $k || $user =~ qr(^$k$);
+    return $v if $user eq $k || $user =~ qr/^$k$/i;
   }
   return undef;
 }

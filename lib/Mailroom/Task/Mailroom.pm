@@ -16,19 +16,19 @@ sub register ($self, $app, $conf) {
 
   $app->minion->remove_after($self->remove_after_days * 86_400);
 
-  $app->minion->add_task($_      => sub { shift->finish($_) }) for qw/processed dropped delivered deferred bounce/;
+  $app->minion->add_task(notify  => sub { shift->finish('notify') }); # for qw/processed dropped delivered deferred bounce/;
   $app->minion->add_task(forward => sub { _forward($self, @_) });
   $app->minion->add_task(ping    => sub { _ping($self, @_) });
   $app->minion->add_task(relay   => sub { _relay($self, @_) });
 }
 
-sub _forward ($self, $job, $mail_from, $send_to, $data) {
+sub _forward ($self, $job, $mail_from, $send_to, $data_type, $data) {
   return $job->finish(sprintf "[%s] finished status-check", $job->info->{queue}) unless $send_to;
-  $self->_send($job, $mail_from, $send_to, $data);
+  $self->_send($job, $mail_from, $send_to, $data_type, $data);
 }
 
-sub _relay ($self, $job, $mail_from, $send_to, $data) {
-  $self->_send($job, $mail_from, $send_to, $data);
+sub _relay ($self, $job, $mail_from, $send_to, $data_type, $data) {
+  $self->_send($job, $mail_from, $send_to, $data_type, $data);
 }
 
 sub _ping ($self, $job) {
@@ -40,15 +40,15 @@ sub _ping ($self, $job) {
   my $to = join ', ', map { "null\@$_" } @$domains;
   $job->note(domains => $domains);
   my $data = sprintf "From: %s\r\nTo: %s\r\nSubject: smtp_ping\r\n\r\nSent from Mailroom", $from, $to;
-  $self->_send($job, $from, $to, $data);
+  $self->_send($job, $from, $to, data => $data);
 }
 
-sub _send ($self, $job, $mail_from, $send_to, $data) {
+sub _send ($self, $job, $mail_from, $send_to, $data_type, $data) {
   my $app = $job->app;
 
   #my $time = time;
   # TODO: fail if bad SSL on $domain
-  $data = path($data->[0]) if ref $data;
+  $data = path($data) if $data_type eq 'path';
   return $job->fail(sprintf "[%s] Unable to read %s", $job->info->{queue}, $data) unless $data && (ref $data ? -f $data && -r _ : 1);
 
   my $from = ((Mail::Address->parse($mail_from))[0]);
@@ -57,10 +57,10 @@ sub _send ($self, $job, $mail_from, $send_to, $data) {
     auth => {type => 'login', login => 'apikey', password => $self->apikey},
     from => $from->address,
     to   => $to,
-    data => (ref $data ? $data->slurp : $data),
+    data => ($data_type eq 'path' ? $data->slurp : $data),
     quit => 1,
   );
-  $job->note(send => [auth => {type => 'login', login => 'apikey', password => '???'}, @send[2..9]]);
+  $job->note(send => [auth => {type => 'login', login => 'apikey', password => '???'}, @send[2..6], sprintf('%s ... (%d total bytes)', substr($send[7], 0, 100), length($send[7])), @send[8..9] ]);
   #warn Mojo::Util::dumper({@send});
   my $sending = ref $data ? $data : sprintf '%s bytes', length($data);
   return $job->fail(sprintf "[%s] Failed to send %s: missing apikey", $job->info->{queue}, $sending) unless $self->apikey;

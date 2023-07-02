@@ -64,7 +64,7 @@ sub queue {
     if ( $self->mail_from && @{$self->rcpt_to} && $self->data ) {
       my $from = ((Mail::Address->parse($self->mail_from))[0]);
       my $mx = $from->host;
-      my $id = $self->server->minion->enqueue(relay => [$self->mail_from, $self->rcpt_to, [$self->data->path]] => {queue => $mx});
+      my $id = $self->server->minion->enqueue(relay => [$self->mail_from, $self->rcpt_to, path => $self->data->path] => {queue => $mx});
       my $finish = $self->write(250, sprintf 'OK message queued as %s', $id)->reset;
       $self->server->minion->perform_jobs({queues => [$mx]}) if DEBUG;
       return $finish;

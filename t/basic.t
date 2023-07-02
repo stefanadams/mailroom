@@ -42,7 +42,8 @@ my $t = Test::Mojo->new('Mailroom' => {
     },
   },
 });
-$t->app->home(tempdir);
+$t->app->log->level('fatal');
+$t->app->home(curfile->dirname);
 
 subtest 'Helpers' => sub {
   is $t->app->mx(Mojo::URL->new('http://mailroom.examp.le')), 'examp.le', 'right mx domain';
@@ -52,11 +53,14 @@ subtest 'Helpers' => sub {
 subtest 'Incoming' => sub {
   $t->get_ok('/')->status_is(200);
   $t->post_ok('/' => $headers => multipart => $multipart)->status_is(200)
-    ->json_is('/domain', 'examp.le')
+    ->json_is('/connection', 'abc')
+    ->json_is('/request_id', '123')
+    ->json_is('/queue', 'maintenance')
     ->json_is('/id', 1)
     ->json_is('/path', undef)
-    ->json_is('/size', 770)
-    ->json_is('/to', 'John Doe <to1@bar.com>');
+    ->json_is('/size', 1651)
+    ->json_is('/to_cc', 'John Doe <to1@bar.com>');
 };
 
+curfile->dirname->child('spool', 'outgoing', 'examp.le', 'abc.123')->remove;
 done_testing;

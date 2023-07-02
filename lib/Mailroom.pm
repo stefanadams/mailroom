@@ -4,7 +4,7 @@ use Mojo::Base 'Mojolicious', -signatures;
 use Mailroom::Model;
 use Mojo::SMTP::Client;
 use Mojo::File qw(tempfile);
-use Mojo::Util qw(dumper);
+use Mojo::Util qw(dumper encode);
 
 use constant DEBUG      => $ENV{MAILROOM_DEBUG} // 0;
 use constant LOG_FILE   => $ENV{MAILROOM_LOG_FILE} ? path($ENV{MAILROOM_LOG_FILE})->tap(sub{$_->dirname->make_path}) : undef;
@@ -30,8 +30,8 @@ sub startup ($self) {
   $self->plugin('Mailroom::Task::Mailroom');
   $self->plugin('CaptureTX' => {
     skip_cb => sub ($app, $tx, $stream, $bytes) {
-      return 1 if substr($bytes, 0, 10) eq 'GET /admin';
-      return 1 if substr($bytes, 0, 12) eq 'HEAD /status';
+      return 1 if substr($bytes, 0, 14) eq 'GET / HTTP/1.1';
+      return 1 if substr($bytes, 0, 40) =~ m!^\w+ (/admin/minion|/notify|/status)!;
     }
   });
 
