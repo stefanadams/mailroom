@@ -8,7 +8,7 @@ use Mojo::Asset::File;
 use Mojo::File qw(path);
 use Mojo::JSON qw(j);
 use Mojo::Log;
-use Mojo::Util qw(decode encode);
+use Mojo::Util qw(encode);
 use Text::Unidecode;
 ### use Time::HiRes qw(time);
 
@@ -135,7 +135,7 @@ sub rewrite_email ($self) {
   my $path = $self->home->child('spool', 'outgoing', $mx)->make_path->child($incoming->asset->path->basename);
   $path->remove if -e $path;
   my $asset = Mojo::Asset::File->new(path => $path, cleanup => 0);
-  eval { $asset->add_chunk($mi->as_string) };
+  eval { $asset->add_chunk(encode 'UTF-8', $mi->as_string) };
   if ($@) {
     $self->log->error(sprintf 'error writing %s: %s', $asset->path, $@);
   }

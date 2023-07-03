@@ -3,7 +3,7 @@ use Mojo::Base 'Mojolicious::Plugin', -signatures;
 
 use Mojo::File qw(path);
 use Mojo::Home;
-use Mojo::Util qw(decode encode);
+use Mojo::Util qw(encode);
 
 use constant CAPTURE_TX => $ENV{MOJO_CAPTURE_TX} // 1;
 
@@ -32,9 +32,15 @@ sub _capture ($self, $app, $tx) {
     my $stream = Mojo::IOLoop->stream($connection);
     $stream->on(read => sub ($stream, $bytes) {
       my $asset = $self->{assets}->{$connection} or return;
-      return if !$bytes || $self->skip_cb->($app, $tx, $stream, $bytes);
-      $app->log->debug(sprintf '[%s] [%s] got %d bytes (%d total so far)', $request_id, $connection, length($bytes), length($bytes) + $asset->size);
-      $asset->add_chunk(encode 'UTF-8', $bytes);
+      return if !$bytes || $self->skip_cb->($app, $tx, $stream, $bytes, $asset);
+      $app->log->trace(sprintf '[%s] [%s] got %d bytes (%d total so far)', $request_id, $connection, length($bytes), length($bytes) + $asset->size);
+      eval { $asset->add_chunk(encode 'UTF-8', $bytes) };
+      if ($@) {
+        $app->log->error(sprintf 'error writing %s: %s', $asset->path, $@);
+      }
+      else {
+        $app->log->debug(sprintf 'wrote %d bytes to %s', $asset->size, $asset->path);
+      }
     });
     $stream->on(close => sub ($stream) {
       my $asset = $self->{assets}->{$connection} or return;

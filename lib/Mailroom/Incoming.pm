@@ -5,6 +5,7 @@ use Mojo::Asset::File;
 use Mojo::Message::Request;
 use Mojo::Home;
 use Mojo::Log;
+use Mojo::Util qw(encode);
 
 has [qw(connection mx request_id)] => sub { die "missing attr" };
 has asset     => \&_asset;
@@ -21,7 +22,7 @@ sub _asset ($self) {
     $self->log->debug(sprintf 'skip overwriting existing incoming: %s (%d bytes)', $asset->path, $asset->size);
   }
   else {
-    eval { $asset->add_chunk($self->req->to_string) };
+    eval { $asset->add_chunk(encode 'UTF-8', $self->req->to_string) };
     if ($@) {
       $self->log->error(sprintf 'error writing %s: %s', $asset->path, $@);
     }

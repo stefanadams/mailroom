@@ -6,7 +6,7 @@ use Mojo::Log;
 use Mojo::Home;
 use Mojo::File 'path';
 use Mojo::Asset::File;
-use Mojo::Util qw/b64_decode b64_encode md5_sum/;
+use Mojo::Util qw/b64_decode b64_encode encode md5_sum/;
 
 #use Crypt::Password ();
 
@@ -187,7 +187,7 @@ sub _on_data {
   $self->na and return unless $self->auth;
   $self->write(354, 'Send message content; end with <CRLF>.<CRLF>') and $self->data(Mojo::Asset::File->new(cleanup => 0, tmpdir => $self->home->child('spool', 'relay')->make_path)) and $bytes =~ s/^data\s*\r?\n//i unless $self->data;
   my $finished = 1 if $bytes =~ s/\r?\n\.\r?\n.*$// || $bytes =~ s/^\.\r?\n.*$//m;
-  $self->data->add_chunk($bytes);
+  $self->data->add_chunk(encode 'UTF-8', $bytes);
   $self->queue->finish if $finished;
   return $self;
 }
