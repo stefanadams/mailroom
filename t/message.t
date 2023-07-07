@@ -37,13 +37,13 @@ my $outgoing = Mailroom::Outgoing->new(
 ok $incoming->req->is_finished;
 
 subtest 'incoming' => sub {
-  is $incoming->asset->size, 3527, 'right asset size';
-  is length($incoming->req->to_string), 3527, 'right request size';
+  is $incoming->asset->size, 3559, 'right asset size';
+  is length($incoming->req->to_string), 3559, 'right request size';
   is $incoming->path, curfile->dirname->child('spool', 'incoming', 'examp.le', 'abc.123'), 'right path';
 
   my $content = $incoming->req->content;
   ok $content->is_multipart, 'is multipart';
-  is $content->header_size, 337, 'right header size';
+  is $content->header_size, 369, 'right header size';
   is $content->body_size, 3173, 'right body size';
   is scalar $content->parts->@*, 11, 'right number of parts';
 
@@ -55,13 +55,13 @@ subtest 'incoming' => sub {
 
 subtest 'outgoing' => sub {
   my $incoming = $outgoing->incoming;
-  is $incoming->asset->size, 3527, 'right asset size';
-  is length($incoming->req->to_string), 3527, 'right request size';
+  is $incoming->asset->size, 3559, 'right asset size';
+  is length($incoming->req->to_string), 3559, 'right request size';
   is $incoming->path, curfile->dirname->child('spool', 'incoming', 'examp.le', 'abc.123'), 'right path';
 
   my $content = $incoming->req->content;
   ok $content->is_multipart, 'is multipart';
-  is $content->header_size, 337, 'right header size';
+  is $content->header_size, 369, 'right header size';
   is $content->body_size, 3173, 'right body size';
   is scalar $content->parts->@*, 11, 'right number of parts';
 
