@@ -5,6 +5,7 @@ use Mailroom::Model;
 use Mojo::SMTP::Client;
 use Mojo::File qw(tempfile);
 use Mojo::Util qw(dumper);
+use Email::MIME;
 
 use constant DEBUG      => $ENV{MAILROOM_DEBUG} // 0;
 use constant LOG_FILE   => $ENV{MAILROOM_LOG_FILE} ? path($ENV{MAILROOM_LOG_FILE})->tap(sub{$_->dirname->make_path}) : undef;
@@ -75,10 +76,14 @@ sub startup ($self) {
   $aliases->put('/:alias_id')->to('aliases#update')->name('update_alias');
   $aliases->delete('/:alias_id')->to('aliases#remove')->name('remove_alias');
 
-  $admin->get('/message/*file' => sub ($c) { warn $c->param('file'); $c->res->headers->content_type('text/html'); $c->reply->file('/'.$c->param('file')) });
-
-  Mojo::IOLoop->recurring(3600 => sub {
-    $self->app->minion->enqueue(ping => [] => {queue => 'ping', expire => 360}) unless $self->app->model->minion->backend->recently_finished;
+  $admin->get('/message/*file' => sub ($c) {
+    $c->log->warn($c->param('file'));
+    $c->res->headers->content_type('text/html');
+    my $req = Mojo::Message::Request->new->parse(Mojo::File::path('/'.$c->param('file'))->slurp);
+    my $email = $req->param('email');
+    my $msg = Email::MIME->new($email);
+    my @parts = $msg->parts;
+    $c->render(text => map { $_->body } ((grep { $_->content_type =~ /text\/html/ } @parts))[0]);
   });
 
   Mojo::IOLoop->recurring(3600 => sub { $self->app->ping });

@@ -11,3 +11,4 @@ requires 'Mail::DMARC::PurePerl', '1.20200214';
 requires 'Text::Unidecode', '1.30';
 #requires 'Mojo::Pg';#, '4.19';
 #requires 'Mojolicious::Plugin::ProxyPass', url => 'https://github.com/s1037989/Mojolicious-Plugin-ProxyPass/archive/master.zip';
+requires 'Email::MIME';

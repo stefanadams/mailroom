@@ -77,6 +77,7 @@ sub info ($self, %info) {
     id         => 0,
     incoming   => $incoming->asset->path,
     outgoing   => $asset->path,
+    message    => sprintf('http://mailroom.%s/admin/message%s', $incoming->mx, $incoming->asset->path),
     from       => $router->format('from'),
     connection => $incoming->connection,
     queue      => $incoming->mx,
