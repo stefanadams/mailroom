@@ -12,8 +12,7 @@ my $t = Test::Mojo->new('Mailroom', {
 ok -f $t->app->model->backend->database->db->dbh->sqlite_db_filename;
 
 subtest 'ping' => sub {
-  $t->app->minion->enqueue(ping => [] => {queue => 'ping'});
-  #$t->app->minion->perform_jobs({queues => ['ping']});
+  $t->app->minion->enqueue(ping => [] => {queue => 'a.com'});
   is $t->app->minion->jobs->next->{notes}->{domains}, undef;
   $t->app->model->aliases->backend->add('a@a.com' => 'b@b.com');
   is_deeply $t->app->model->backend->database->db->select('aliases')->hash, {
@@ -21,14 +20,21 @@ subtest 'ping' => sub {
     "id" => undef,
     "recipient" => "a\@a.com"
   };
-  $t->app->minion->enqueue(ping => [] => {queue => 'ping'});
-  $t->app->minion->perform_jobs({queues => ['ping']});
-  is_deeply $t->app->minion->jobs->next->{notes}->{domains}, ['a.com'];
+  $t->app->minion->enqueue(ping => [] => {queue => 'a.com'});
+  $t->app->minion->perform_jobs_in_foreground({queues => ['a.com']});
+  my $next = $t->app->minion->jobs->next;
+  is $next->{task}, 'ping';
+  is $next->{queue}, 'a.com';
+  $t->app->minion->enqueue(forward => ['devnull@mailroom.mx', 'devnull@a.com', undef, undef] => {queue => 'a.com'});
+  $t->app->minion->perform_jobs_in_foreground({queues => ['a.com']});
+  $next = $t->app->minion->jobs->next;
+  is $next->{state}, 'finished';
+  is $next->{result}, '[a.com] pong';
 };
 
 subtest 'forward' => sub {
   $t->app->minion->enqueue(forward => ['test@sample.com', 'c@c.com', data => 'test data'] => {queue => 'sample.com'});
-  $t->app->minion->perform_jobs({queues => ['sample.com']});
+  $t->app->minion->perform_jobs_in_foreground({queues => ['sample.com']});
   is_deeply $t->app->minion->jobs->next->{notes}, {
     send => [
       "auth" => {
@@ -46,7 +52,7 @@ subtest 'forward' => sub {
 
 subtest 'relay' => sub {
   $t->app->minion->enqueue(relay => ['test@sample.com', 'a@a.com, b@b.com', data => 'test data'] => {queue => 'sample.com'});
-  $t->app->minion->perform_jobs({queues => ['sample.com']});
+  $t->app->minion->perform_jobs_in_foreground({queues => ['sample.com']});
   is_deeply $t->app->minion->jobs->next->{notes}, {
     send => [
       "auth" => {

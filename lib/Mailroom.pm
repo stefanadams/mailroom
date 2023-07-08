@@ -25,6 +25,7 @@ sub startup ($self) {
   $self->helper(mx         => \&_mx);
   $self->helper('reply.ok' => sub { shift->render(text => '', status => 200) });
   $self->helper(smtp       => \&_smtp);
+  $self->helper(ping       => \&_ping);
 
   $self->plugin(Minion => $self->app->model->backend->to_hash);
   $self->plugin('Mailroom::Task::Mailroom');
@@ -79,6 +80,8 @@ sub startup ($self) {
   Mojo::IOLoop->recurring(3600 => sub {
     $self->app->minion->enqueue(ping => [] => {queue => 'ping', expire => 360}) unless $self->app->model->minion->backend->recently_finished;
   });
+
+  Mojo::IOLoop->recurring(3600 => sub { $self->app->ping });
 }
 
 sub _mx ($c, $url=undef) {
@@ -86,6 +89,17 @@ sub _mx ($c, $url=undef) {
   my $domain = ($url||$c->req->url)->to_abs->host;
   my $moniker = $c->app->moniker;
   $domain =~ s/^$moniker\.// and return $domain;
+}
+
+sub _ping ($self, $seconds=3600) {
+  my $app = $self->app;
+  my $domains = $app->model->aliases->backend->domains;
+  push @$domains, keys $app->config->{mailroom}->{domain}->%*;
+  $app->log->warn('no aliases defined') and return unless @$domains;
+  foreach my $domain (@$domains) {
+    next if $self->app->model->minion->backend->recently_finished($domain, $seconds);
+    $self->app->minion->enqueue(ping => [] => {queue => $domain, expire => 360});
+  }
 }
 
 sub _setup_log ($self) {

@@ -23,7 +23,7 @@ sub register ($self, $app, $conf) {
 }
 
 sub _forward ($self, $job, $mail_from, $send_to, $data_type, $data) {
-  return $job->finish(sprintf "[%s] finished status-check", $job->info->{queue}) unless $send_to;
+  return $job->finish(sprintf "[%s] pong", $job->info->{queue}) if $send_to =~ /^devnull/;
   $self->_send($job, $mail_from, $send_to, $data_type, $data);
 }
 
@@ -32,15 +32,23 @@ sub _relay ($self, $job, $mail_from, $send_to, $data_type, $data) {
 }
 
 sub _ping ($self, $job) {
-  return $job->fail('not default_domain specified') unless $self->default_domain;
   my $app = $job->app;
-  my $domains = $app->model->aliases->backend->domains;
-  return $job->finish('no aliases defined') unless @$domains;
-  my $from = sprintf 'null@%s', $self->default_domain;
-  my $to = join ', ', map { "null\@$_" } @$domains;
-  $job->note(domains => $domains);
-  my $data = sprintf "From: %s\r\nTo: %s\r\nSubject: smtp_ping\r\n\r\nSent from Mailroom", $from, $to;
-  $self->_send($job, $from, $to, data => $data);
+  return $job->fail('no default_domain specified') unless my $default_domain = $self->default_domain;
+  return $job->fail('no queue specified') unless my $domain = $job->info->{queue};
+  return $job->fail(sprintf "[%s] Failed to ping: missing apikey", $domain) unless $self->apikey;
+  my @send = ();
+  push @send,
+    from => "devnull\@$default_domain",
+    to   => "devnull\@$domain",
+    data => "From: devnull\@$default_domain\r\nTo: devnull\@$domain\r\nSubject: smtp_ping\r\n\r\nSent from Mailroom";
+  #warn Mojo::Util::dumper([@send]);
+  my $resp = $app->smtp->send(auth => {type => 'login', login => 'apikey', password => $self->apikey}, @send, quit => 1);
+  if (my $error = ref $resp ? $resp->error : 'smtp fail') {
+    $job->fail(sprintf 'failed to ping %s from %s: %s', $domain, $default_domain, $error);
+  }
+  else {
+    $job->finish(sprintf 'successfully pinged %s from %s', $domain, $default_domain);
+  }
 }
 
 sub _send ($self, $job, $mail_from, $send_to, $data_type, $data) {
@@ -61,7 +69,7 @@ sub _send ($self, $job, $mail_from, $send_to, $data_type, $data) {
     quit => 1,
   );
   $job->note(send => [auth => {type => 'login', login => 'apikey', password => '???'}, @send[2..6], sprintf('%s ... (%d total bytes)', substr($send[7], 0, 100), length($send[7])), @send[8..9] ]);
-  #warn Mojo::Util::dumper({@send});
+  #warn Mojo::Util::dumper([@send]);
   my $sending = ref $data ? $data : sprintf '%s bytes', length($data);
   return $job->fail(sprintf "[%s] Failed to send %s: missing apikey", $job->info->{queue}, $sending) unless $self->apikey;
   my $resp = $app->smtp->send(@send);
