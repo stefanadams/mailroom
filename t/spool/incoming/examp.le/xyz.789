@@ -1,0 +1,119 @@
+POST / HTTP/1.1
+Accept-Encoding: gzip
+Connection: upgrade
+Content-Length: 3170
+Content-Type: multipart/form-data; boundary=xYzZY
+Host: mailroom.examp.le
+User-Agent: Mojolicious (Perl)
+X-Connection-Id: abc
+X-Forwarded-For: 1.2.3.4, 2.3.4.5
+X-Forwarded-Host: mailroom.examp.le
+X-Forwarded-Proto: http
+X-Forwarded-Server: mailroom.examp.le
+X-Mx: examp.le
+X-Request-Id: 123
+
+--xYzZY
+Content-Disposition: form-data; name="dkim"
+
+{@example.com : pass}
+--xYzZY
+Content-Disposition: form-data; name="email"
+
+Received: by host.example.com with SMTP id abcdef Sun, 18 Sep 2022 22:34:16 +0000 (UTC)
+Received: from mx1.example.com (unknown [3.4.5.6]) by host.example.com (Postfix) with ESMTPS id ABCDEF for <johndoe@examp.le>; Sun, 18 Sep 2022 22:34:16 +0000 (UTC)
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=pp-dkim1; c=relaxed/relaxed; q=dns/txt; i=@example.com; t=1663540455; h=From:From:Subject:Date:To:MIME-Version:Content-Type; bh=abcdef=; b=abcdef/abcdef abcdef+abcdef+abcdef abcdef+abcdef abcdef/abcdef U/abcdef/abcdef/abcdef abcdef+UuA==;
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/plain; charset="UTF-8"
+Date: Sun, 18 Sep 2022 15:34:15 -0700
+Message-ID: <a@b>
+X-PP-REQUESTED-TIME: 1663540449351
+X-PP-Email-transmission-Id: abc-def
+PP-Correlation-Id: abcdef
+Subject: Confirm your email address
+X-MaxCode-Template: ABC0001
+To: undisclosed-recipients:;
+From: <service@example.com>
+X-Email-Type-Id: ABC0001
+MIME-Version: 1.0
+X-PP-Priority: 0-none-false
+AMQ-Delivery-Message-Id: nullval
+X-XPT-XSL-Name: nullval
+
+ Hello, John Doe=20
+Confirm your email address
+
+
+Confirm your email address now to let us know it really belongs to you.
+
+
+Once that's done, you're ready to receive money.
+
+
+If you are unable to click the button below to confirm your email, please f=
+ollow this link
+
+
+Not sure why you received this email? Learn more [https://www.example.com/us=
+appVersion=3D1.112.1&xt=3D123456%2C123456]
+
+
+ Copyright =C2=A9 1999-2022 Example, Inc. All rights reserved. Example is loc=
+ated Somewhere.=20
+
+
+Example RT12345:en_US(en-US):1.0.0:abcdef123456
+
+
+--xYzZY
+Content-Disposition: form-data; name="to"
+
+John Doe <johndoe@examp.le>
+--xYzZY
+Content-Disposition: form-data; name="from"
+
+<service@example.com>
+--xYzZY
+Content-Disposition: form-data; name="sender_ip"
+
+3.4.5.6
+--xYzZY
+Content-Disposition: form-data; name="spam_report"
+
+Spam detection software, running on the system "host.example.com",
+has NOT identified this incoming email as spam.  The original
+message has been attached to this so you can view it or label
+similar future email.  If you have any questions, see
+@@CONTACT_ADDRESS@@ for details.
+
+Content preview:  Hello, John Doe Confirm your email address Confirm your
+   email address now to let us know it really belongs to you. Once that's done,
+   you're ready to receive money. [...] 
+
+Content analysis details:   (0.0 points, 5.0 required)
+
+ pts rule name              description
+---- ---------------------- --------------------------------------------------
+
+
+--xYzZY
+Content-Disposition: form-data; name="envelope"
+
+{"to":["johndoe@examp.le"],"from":"service@example.com"}
+--xYzZY
+Content-Disposition: form-data; name="subject"
+
+Confirm your email address
+--xYzZY
+Content-Disposition: form-data; name="spam_score"
+
+0
+--xYzZY
+Content-Disposition: form-data; name="charsets"
+
+{"to":"UTF-8","subject":"UTF-8","from":"UTF-8"}
+--xYzZY
+Content-Disposition: form-data; name="SPF"
+
+pass
+--xYzZY--

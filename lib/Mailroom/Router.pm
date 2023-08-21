@@ -3,6 +3,7 @@ use Mojo::Base -base, -signatures;
 
 use List::Util qw(pairs);
 use Mail::Address;
+use Scalar::Util qw(blessed);
 
 use constant DEBUG => $ENV{MAILROOM_DEBUG} // 0;
 
@@ -16,6 +17,7 @@ has env_cc => sub { shift->param->{envelope}->{cc} || [] };
 has from => sub ($self) { ((Mail::Address->parse($self->param->{from} || $self->env_from))[0]) };
 has to => sub ($self) { [Mail::Address->parse($self->param->{to} || join ', ', $self->env_to->@*)] };
 has cc => sub ($self) { [Mail::Address->parse($self->param->{cc} || join ', ', $self->env_cc->@*)] };
+has bcc => sub ($self) { [Mail::Address->parse($self->param->{bcc})] };
 has 'reply_to';
 
 sub format ($self, $field) {
@@ -36,6 +38,11 @@ sub format ($self, $field) {
     my $cc = $self->cc;
     #$cc->[0]->format(@$cc[1..$#$cc]) if $cc;
     join ', ', map { $_->format } @$cc if $cc;
+  }
+  elsif ($field eq 'bcc') {
+    my $bcc = $self->bcc;
+    #$bcc->[0]->format(@$bcc[1..$#$bcc]) if $bcc;
+    join ', ', map { $_->format } @$bcc if $bcc;
   }
   elsif ($field =~ /^to.?cc$/) {
     my $to = $self->to || [];
@@ -61,11 +68,14 @@ sub new {
   return unless $self->env_from && $self->env_to;
   $self->rewrite_to($self->_build_map($self->to));
   $self->rewrite_cc($self->_build_map($self->cc));
+  $self->rewrite_bcc($self->_build_map($self->bcc));
   #warn Mojo::Util::dumper({env_to => $self->env_to, to => $self->to}) if DEBUG;
   return $self;
 }
 
 sub rewrites { shift->{rewrites} // 0 }
+
+sub rewrite_bcc { shift->_resolve(bcc => shift) }
 
 sub rewrite_cc { shift->_resolve(cc => shift) }
 
@@ -77,7 +87,7 @@ sub rewrite_from ($self, $reason='dmarc_rejection') {
 sub rewrite_to { shift->_resolve(to => shift) }
 
 sub _build_map ($self, $addresses) {
-  return {map { $_->address => [$self->_lookup_config($_) || $self->_lookup_database($_)] } @$addresses}
+  return {map { $_->address => [$self->_lookup_config($_) || $self->_lookup_database($_) || ()] } @$addresses}
 }
 
 sub _lookup_config ($self, $address) {
@@ -100,10 +110,16 @@ sub _resolve ($self, $field, $map) {
   my @addresses;
   foreach my $address ($self->$field->@*) {
     my $phrase = $address->phrase;
-    my $map_address = $map->{$address->address} || $address->address eq $self->mx;
-    foreach (map { ref $_ eq 'ARRAY' ? @$_ : $_ } @$map_address) {
-      my $address = ref $_ ? $_->address : $_;
-      ++$self->{rewrites} and push @addresses, Mail::Address->new($phrase, $address) if $address;
+    my $lookup = $map->{$address->address};
+    my $map_address = @$lookup ? $lookup : [$address];
+    #my $map_address = $map->{$address->address} || $address->address eq $self->mx;
+    foreach (map { ref eq 'ARRAY' ? @$_ : $_ } @$map_address) {
+      my $address = blessed($_) ? $_->address : $_;
+      my $mail_address = Mail::Address->new($phrase, $address);
+      next unless $mail_address->host;
+      next if $self->{$mail_address->address};
+      ++$self->{rewrites} and push @addresses, $mail_address if $address;
+      $self->{$mail_address->address}++ if $mail_address->host eq $self->mx;
     }
   }
   $self->$field([@addresses]);

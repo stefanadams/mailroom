@@ -4,6 +4,7 @@
 requests
 tx
 spool
+!t/spool
 local
 log
 tmp

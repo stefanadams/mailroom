@@ -4,7 +4,7 @@ use Mojo::Base 'Mojolicious', -signatures;
 use Mailroom::Model;
 use Mojo::SMTP::Client;
 use Mojo::File qw(tempfile);
-use Mojo::Util qw(dumper);
+use Mojo::Util qw(dumper encode);
 use Email::MIME;
 
 use constant DEBUG      => $ENV{MAILROOM_DEBUG} // 0;
@@ -83,7 +83,7 @@ sub startup ($self) {
     my $email = $req->param('email');
     my $msg = Email::MIME->new($email);
     my @parts = $msg->parts;
-    $c->render(text => map { $_->body } ((grep { $_->content_type =~ /text\/html/ } @parts))[0]);
+    $c->render(text => map { encode 'UTF-8', $_->body } ((grep { $_->content_type =~ /text\/html/ } @parts))[0]);
   });
 
   Mojo::IOLoop->recurring(3600 => sub { $self->app->ping });

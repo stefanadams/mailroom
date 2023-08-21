@@ -37,19 +37,45 @@ subtest 'envelope and from' => sub {
   is $router->from->format, '"From Header" <mailroom-dmarc_rejection@header.com>';
 };
 
+subtest 'to error' => sub {
+  $router = Mailroom::Router->new(mx => 'header.com', config => $config, param => {
+    envelope => $envelope,
+    from => '"From Header" <from@header.com>',
+    to => 'invalid',
+  });
+  is $router->to->[0], undef;
+};
+
+subtest 'to error with valid bcc' => sub {
+  $router = Mailroom::Router->new(mx => 'header.com', config => $config, param => {
+    envelope => $envelope,
+    from => '"From Header" <from@header.com>',
+    to => 'invalid',
+    bcc => '"BCC1 Header" <bcc1@bar.com>, "BCC2 Header" <bcc2@bar.com>, "BCCd Header" <bcc3@bar.com>',
+  });
+  is $router->to->[0], undef;
+  is $router->bcc->[0]->format, '"BCC1 Header" <bcc1@bar.com>';
+  is $router->bcc->[1]->format, '"BCC2 Header" <bcc2@bar.com>';
+  is $router->bcc->[2]->format, '"BCCd Header" <bcc3@bar.com>';
+};
+
 subtest 'envelope, from, to, and cc' => sub {
   $router = Mailroom::Router->new(mx => 'header.com', config => $config, param => {
     envelope => $envelope,
     from => '"From Header" <from@header.com>',
     to => '"To1 Header" <to1@header.com>, "To2 Header" <to2@header.com>, "Tod Header" <to3@header.com>',
     cc => '"CC1 Header" <cc1@bar.com>, "CC2 Header" <cc2@bar.com>, "CCd Header" <cc3@bar.com>',
+    bcc => '"BCC1 Header" <bcc1@bar.com>, "BCC2 Header" <bcc2@bar.com>, "BCCd Header" <bcc3@bar.com>',
   });
   is $router->to->[0]->format, '"To1 Header" <to1@bar.com>';
   is $router->to->[1]->format, '"To2 Header" <to2@bar.com>';
   is $router->to->[2]->format, '"Tod Header" <tod@bar.com>';
-  is $router->cc->[0], undef;
-  is $router->cc->[1], undef;
-  is $router->cc->[2], undef;
+  is $router->cc->[0]->format, '"CC1 Header" <cc1@bar.com>';
+  is $router->cc->[1]->format, '"CC2 Header" <cc2@bar.com>';
+  is $router->cc->[2]->format, '"CCd Header" <cc3@bar.com>';
+  is $router->bcc->[0]->format, '"BCC1 Header" <bcc1@bar.com>';
+  is $router->bcc->[1]->format, '"BCC2 Header" <bcc2@bar.com>';
+  is $router->bcc->[2]->format, '"BCCd Header" <bcc3@bar.com>';
 };
 
 subtest 'single routes to many' => sub {
@@ -78,7 +104,7 @@ subtest 'recursive lookup' => sub {
     to => '"Tobar Header" <tobar@header.com>, "Somebody Else" <somebody@else.com>',
   });
   is $router->to->[0]->format, '"Tobar Header" <to1@bar.com>';
-  is $router->to->[1], undef;
+  is $router->to->[1]->format, '"Somebody Else" <somebody@else.com>';
 };
 
 subtest 'none handled by the mx' => sub {
@@ -87,7 +113,7 @@ subtest 'none handled by the mx' => sub {
     from => '"From Header" <from@header.com>',
     to => '"Someone Else" <someone@else.com>',
   });
-  is $router->to->[0], undef;
+  is $router->to->[0]->format, '"Someone Else" <someone@else.com>';
 };
 
 subtest 'none configured' => sub {
@@ -96,7 +122,7 @@ subtest 'none configured' => sub {
     from => '"From Header" <from@header.com>',
     to => '"Toa Header" <toa@header.com>, "Somebody Else" <somebody@else.com>',
   });
-  is $router->to->[0], undef;
+  is $router->to->[0]->format, '"Somebody Else" <somebody@else.com>';
 };
 
 $config = [

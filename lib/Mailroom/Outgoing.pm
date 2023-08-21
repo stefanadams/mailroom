@@ -87,6 +87,9 @@ sub info ($self, %info) {
     subject    => $req->param('subject'),
     task       => '',
     to_cc      => $router->format('to+cc'),
+    to         => $router->format('to'),
+    cc         => $router->format('cc'),
+    bcc        => $router->format('bcc'),
     %info
   };
 }
@@ -126,11 +129,12 @@ sub rewrite_email ($self) {
   my $mi = Mail::Internet->new;
   $mi->extract([map { "$_\n" } split /\n/, $email]);
 
-  my ($from, $reply_to, $to, $cc) = map { $router->format($_) } qw/from reply-to to cc/;
+  my ($from, $reply_to, $to, $cc, $bcc) = map { $router->format($_) } qw/from reply-to to cc bcc/;
   return unless $to;
   $mi->replace('From' => $from) if $from;
   $mi->replace('To' => $to) if $to;
   $mi->replace('Cc' => $cc) if $cc;
+  $mi->replace('Bcc' => $bcc) if $bcc;
   $mi->replace('Reply-To' => $reply_to) if $reply_to;
 
   my $path = $self->home->child('spool', 'outgoing', $mx)->make_path->child($incoming->asset->path->basename);
