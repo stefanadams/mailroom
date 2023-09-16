@@ -83,7 +83,7 @@ sub startup ($self) {
     my $email = $req->param('email');
     my $msg = Email::MIME->new($email);
     my @parts = $msg->parts;
-    $c->render(text => map { encode 'UTF-8', $_->body } ((grep { $_->content_type =~ /text\/html/ } @parts))[0]);
+    $c->render(text => map { encode 'UTF-8', $_->body } ((grep { $_->content_type =~ /text\/(html|plain)/ } @parts))[0]);
   });
 
   Mojo::IOLoop->recurring(3600 => sub { $self->app->ping });
