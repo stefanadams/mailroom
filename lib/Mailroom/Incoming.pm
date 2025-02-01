@@ -34,6 +34,7 @@ sub _asset ($self) {
 }
 
 sub _fix_headers ($self) {
+  # NOTE: Content-Length is the total size of the request body, NOT including the headers; i.e. everything after the first blank line
   $self->connection($self->_header('X-Connection-Id' => $self->connection));
   $self->request_id($self->_header('X-Request-Id' => $self->request_id));
   $self->mx($self->_header('X-Mx' => $self->mx));

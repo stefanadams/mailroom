@@ -51,7 +51,7 @@ use Mojo::Log;
     ok $content->headers_contain('X-Connection-Id: abc'), 'right header';
     ok $content->headers_contain('X-Request-Id: 123'), 'right header';
 
-    ok $content->parts->[1]->body_contains('To: John Doe <johndoe@examp.le>'), 'right body';
+    ok $content->parts->[1]->body_contains('To: John Doe <johndoe@examp.fm>'), 'right body';
   };
 
   subtest 'outgoing' => sub {

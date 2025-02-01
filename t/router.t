@@ -11,6 +11,7 @@ my $config = [
   'to3' => 'to3@bar.com',
   'tomany' => ['tomany1@bar.com', 'tomany2@bar.com'],
   'tobar' => 'to1@header.com',
+  'regex.*' => 'regex@bar.com',
 ];
 my $envelope = {
   from => 'from@envelope.com',
@@ -23,8 +24,8 @@ subtest 'envelope' => sub {
     envelope => $envelope,
   });
   is $router->from->format, 'from@envelope.com';
-  is $router->to->[0]->format, 'to1@bar.com';
-  is $router->to->[1]->format, 'to2@bar.com';
+  is $router->to->[0]->format, 'to1@envelope.com';
+  is $router->to->[1]->format, 'to2@envelope.com';
 };
 
 subtest 'envelope and from' => sub {

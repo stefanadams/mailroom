@@ -18,6 +18,7 @@ has from => sub ($self) { ((Mail::Address->parse($self->param->{from} || $self->
 has to => sub ($self) { [Mail::Address->parse($self->param->{to} || join ', ', $self->env_to->@*)] };
 has cc => sub ($self) { [Mail::Address->parse($self->param->{cc} || join ', ', $self->env_cc->@*)] };
 has bcc => sub ($self) { [Mail::Address->parse($self->param->{bcc})] };
+has forward_to => sub { {} };
 has 'reply_to';
 
 sub format ($self, $field) {
@@ -49,6 +50,9 @@ sub format ($self, $field) {
     my $cc = $self->cc || [];
     #$to->[0]->format(@$to[1..$#$to], @$cc[0..$#$cc]) if $cc;
     join ', ', map { $_->format } grep { $_ } @$to, @$cc;
+  }
+  elsif ($field eq 'forward_to') {
+    join ', ', keys %{$self->forward_to};
   }
 }
 
@@ -91,11 +95,14 @@ sub _build_map ($self, $addresses) {
 }
 
 sub _lookup_config ($self, $address) {
+  return undef unless my $mx = $self->mx;
+  my ($user, $host) = ($address->user, $address->host);
+  return undef unless $host;
+  return undef unless $host eq $mx;
   my $config = $self->config;
-  my $user = $address->user;
   foreach (pairs @$config) {
     my ($k, $v) = ($_->key, $_->value);
-    return $v if $user eq $k || $user =~ qr/^$k$/i;
+    return $v if $user =~ qr/^$k$/i;
   }
   return undef;
 }
@@ -107,22 +114,22 @@ sub _lookup_database ($self, $address) {
 }
 
 sub _resolve ($self, $field, $map) {
-  my @addresses;
-  foreach my $address ($self->$field->@*) {
-    my $phrase = $address->phrase;
-    my $lookup = $map->{$address->address};
-    my $map_address = @$lookup ? $lookup : [$address];
-    #my $map_address = $map->{$address->address} || $address->address eq $self->mx;
+  my @outgoing_addresses;
+  foreach my $incoming_address ($self->$field->@*) {
+    my $phrase = $incoming_address->phrase;
+    my $lookup = $map->{$incoming_address->address};
+    my $map_address = @$lookup ? $lookup : [$incoming_address];
+    #my $map_address = $map->{$incoming_address->address} || $incoming_address->address eq $self->mx;
     foreach (map { ref eq 'ARRAY' ? @$_ : $_ } @$map_address) {
-      my $address = blessed($_) ? $_->address : $_;
-      my $mail_address = Mail::Address->new($phrase, $address);
+      my $outgoing_address = blessed($_) ? $_->address : $_;
+      my $mail_address = Mail::Address->new($phrase, $outgoing_address);
       next unless $mail_address->host;
       next if $self->{$mail_address->address};
-      ++$self->{rewrites} and push @addresses, $mail_address if $address;
-      $self->{$mail_address->address}++ if $mail_address->host eq $self->mx;
+      ++$self->{rewrites} and push @outgoing_addresses, $mail_address if $outgoing_address;
+      ++$self->{forward_to}->{$outgoing_address} and ++$self->{$mail_address->address} if $incoming_address->host eq $self->mx;
     }
   }
-  $self->$field([@addresses]);
+  $self->$field([@outgoing_addresses]);
   __SUB__->($self, $field => $self->_build_map($self->$field)) if grep { $_->host eq $self->mx } $self->$field->@*;
 }
 

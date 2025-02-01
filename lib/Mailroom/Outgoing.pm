@@ -50,7 +50,7 @@ sub forward ($self, $queue=undef) {
   my $task   = $info->{task} = 'forward';
   my $router = $self->router;
   if ($self->minion) {
-    if ($info->{id} = $self->minion->enqueue($task => [$router->format('from'), $router->format('to+cc'), path => $self->asset->path] => {queue => $info->{queue}})) {
+    if ($info->{id} = $self->minion->enqueue($task => [$router->format('from'), $router->format('forward_to'), path => $self->asset->path] => {queue => $info->{queue}})) {
       $self->log->info(sprintf '[%s] job %s (%s bytes) queued %s successfully for %s to %s', map {$_//''} $info->@{qw(queue id size outgoing task to_cc)});
       $self->minion->job($info->{id})->note(%$info);
       $self->minion->perform_jobs({queues => [$info->{queue}]}) if DEBUG;
@@ -96,12 +96,10 @@ sub info ($self, %info) {
 
 sub new {
   my $self = shift->SUPER::new(@_);
-  #warn Mojo::Util::dumper($self->param) if DEBUG;
-  #warn Mojo::Util::dumper($self->router) if DEBUG;
+  # warn Mojo::Util::dumper($self->router) if DEBUG;
   return undef unless my $router = $self->router;
-  ### $self->message_id;
 
-  if (my $forward_to = $router->format('to')) {
+  if (my $forward_to = $router->format('forward_to')) {
     $self->log->info(sprintf '[%s] New incoming forward message, routing to: %s', $self->incoming->mx, $forward_to);
     $self->rewrite_email;
   }
@@ -136,6 +134,7 @@ sub rewrite_email ($self) {
   $mi->replace('Cc' => $cc) if $cc;
   $mi->replace('Bcc' => $bcc) if $bcc;
   $mi->replace('Reply-To' => $reply_to) if $reply_to;
+  # warn $mi->as_string if DEBUG;
 
   my $path = $self->home->child('spool', 'outgoing', $mx)->make_path->child($incoming->asset->path->basename);
   $path->remove if -e $path;
