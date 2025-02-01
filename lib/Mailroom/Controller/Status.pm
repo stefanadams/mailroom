@@ -42,7 +42,8 @@ sub status_page ($self) { $self->redirect_to($self->app->config->{mailroom}->{ex
 sub status ($self) {
   my $db = $self->minion->backend->sqlite->db;
   #$self->minion->backend->sqlite->db->dbh->sqlite_trace(sub { $self->log->debug(shift) });
-  my $total = $db->query(q(select count(*) from minion_jobs where queue = ? and task = ? and finished > datetime('now', ?)), $self->param('domain'), $self->param('task'), sprintf '-%d seconds', $self->param('seconds'))->array->[0];
+  # my $total = $db->query(q(select count(*) from minion_jobs where queue = ? and task = ? and finished > datetime('now', ?)), $self->param('domain'), $self->param('task'), sprintf '-%d seconds', $self->param('seconds'))->array->[0];
+  my $total = $db->query(q(select count(*) from minion_jobs where queue = ? and (task = 'ping' or task = ?) and finished > datetime('now', ?)), $self->param('domain'), $self->param('task'), sprintf '-%d seconds', $self->param('seconds'))->array->[0];
   #$self->minion->backend->sqlite->db->dbh->sqlite_trace(undef);
   my $exception = sprintf 'no %s mails for %s have fininshed in the past %s seconds', $self->param('task'), $self->param('domain'), $self->param('seconds');
   $self->log->debug($exception) unless $total;

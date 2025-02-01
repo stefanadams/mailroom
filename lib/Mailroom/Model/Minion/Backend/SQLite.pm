@@ -10,7 +10,8 @@ sub new {
 }
 
 sub recently_finished ($self, $queue, $seconds=3600) {
-  $self->sqlite->db->query(q(select count(*) from minion_jobs where task = 'forward' and queue = ? and finished > datetime('now', ? || ' seconds')), $queue, $seconds * -1)->array->[0]
+  # $self->sqlite->db->query(q(select count(*) from minion_jobs where task = 'forward' and queue = ? and finished > datetime('now', ? || ' seconds')), $queue, $seconds * -1)->array->[0]
+  $self->sqlite->db->query(q(select count(*) from minion_jobs where (task = 'ping' or task = 'forward') and queue = ? and finished > datetime('now', ? || ' seconds')), $queue, $seconds * -1)->array->[0]
 }
 
 1;
