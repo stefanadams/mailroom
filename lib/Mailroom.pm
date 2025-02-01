@@ -42,6 +42,7 @@ sub startup ($self) {
   $r->post('/')->to('mailroom#incoming');
   $r->post('/notify')->to('notify#notify');
   $r->get('/status')->to('status#status_page');
+  $r->get('/status/check/#domain/:duration')->to('status#check');
   $r->get('/status/#domain/:seconds/:task' => {seconds => 21_600, task => 'forward'})->to('status#status');
 
   my $admin = $r->under('/admin')->to('admin#auth');

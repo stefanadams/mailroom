@@ -20,6 +20,13 @@ sub register ($self, $app, $conf) {
   $app->minion->add_task(forward => sub { _forward($self, @_) });
   $app->minion->add_task(ping    => sub { _ping($self, @_) });
   $app->minion->add_task(relay   => sub { _relay($self, @_) });
+  $app->minion->add_task(check   => sub { _check($self, @_) });
+}
+
+sub _check ($self, $job, $contacts) {
+  my $app = $job->app;
+  my $domain = $job->info->{queue};
+  $job->finish('failed to receive check, notified contacts');
 }
 
 sub _forward ($self, $job, $mail_from, $send_to, $data_type, $data) {
