@@ -26,7 +26,7 @@ sub register ($self, $app, $conf) {
 sub _check ($self, $job, $contacts) {
   my $app = $job->app;
   my $domain = $job->info->{queue};
-  $self->_send($job, "mailroom\@$domain", $contacts, 'data', sprintf "From: %s\r\nTo: %s\r\nSubject: status check failed\r\n\r\nstatus check failed", "mailroom\@$domain", join ',', $contacts);
+  $self->_send($job, "mailroom\@$domain", $contacts, 'data', sprintf "From: %s\r\nTo: %s\r\nSubject: status check failed\r\n\r\nstatus check failed", "mailroom\@$domain", join ',', $contacts) if $contacts;
   $job->finish('failed to receive check, notified contacts');
 }
 
