@@ -10,29 +10,31 @@ sub auth ($self) {
 }
 
 sub check ($self) {
-  my $domain = $self->param('domain');
+  my $queue = $self->param('queue');
   my $duration = $self->param('duration');
   my $minion = $self->app->minion;
-  my $contacts = join ';', sort @{$self->every_param('contact')};
   $self->log->debug(sprintf 'logging /status/check check task events');
-  my $checks = $minion->jobs({tasks => ['check'], states => ['active', 'inactive'], queues => [$domain]});
+  my $checks = $minion->jobs({tasks => ['check'], states => ['active', 'inactive'], queues => [$queue]});
   my $check = 0;
   while (my $info = $checks->next) {
-    next unless $info->{args}->[0] eq $contacts;
+    # warn sprintf 'checking %s', $info->{id};
     $check = $info->{id} and last;
   }
-  $check ||= $minion->enqueue(check => [$contacts], {delay => $duration, queue => $domain});
+  $check ||= $minion->enqueue('check', [$duration], {queue => $queue}) if $duration;
+  return $self->render(json => {error => 'no check task found'}) unless $check;
   my $job = $minion->job($check);
   my $id = $job->id;
   if ($duration) {
-    warn sprintf 'extend %s', $id;
+    # warn sprintf 'extend %s', $id;
     $job->retry({delay => $duration});
     my $info = {created => $job->info->{created}, delayed => $job->info->{delayed}, id => $id, result => $job->info->{result}, retries => $job->info->{retries}};
+    $minion->broadcast('add_queue', [$queue]);
     $self->render(json => $info);
   }
   else {
-    warn sprintf 'remove %s', $id;
+    # warn sprintf 'remove %s', $id;
     $job->remove;
+    $minion->broadcast('remove_queue', [$queue]);
     $self->render(json => {removed => $id});
   }
 }

@@ -2,6 +2,7 @@ package Mailroom::Task::Mailroom;
 use Mojo::Base 'Mojolicious::Plugin', -signatures;
 
 use Mail::Address;
+use Mailroom::Router;
 use Mojo::File qw(path);
 use Mojo::JSON qw(j);
 
@@ -21,12 +22,29 @@ sub register ($self, $app, $conf) {
   $app->minion->add_task(ping    => sub { _ping($self, @_) });
   $app->minion->add_task(relay   => sub { _relay($self, @_) });
   $app->minion->add_task(check   => sub { _check($self, @_) });
+
+  $app->minion->on(worker => sub ($minion, $worker) {
+    $worker->add_command(add_queue => sub ($worker, @queues) {
+      my %queues = ((map { $_ => 1 } @{$worker->status->{queues}}), (map { $_ => 1 } @queues));
+      # warn sprintf 'Worker %d: %s', $worker->id, join ', ', @{$worker->status->{queues}};
+      @{$worker->status->{queues}} = sort grep { $queues{$_} } keys %queues;
+      # warn sprintf 'Worker %d after add: %s', $worker->id, join ', ', @{$worker->status->{queues}};
+    });
+    $worker->add_command(remove_queue => sub ($worker, @queues) {
+      my %queues = ((map { $_ => 1 } @{$worker->status->{queues}}), (map { $_ => 0 } @queues));
+      # warn sprintf 'Worker %d: %s', $worker->id, join ', ', @{$worker->status->{queues}};
+      @{$worker->status->{queues}} = sort grep { $queues{$_} } keys %queues;
+      # warn sprintf 'Worker %d after remove: %s', $worker->id, join ', ', @{$worker->status->{queues}};
+    });
+  });
 }
 
-sub _check ($self, $job, $contacts) {
+sub _check ($self, $job, $duration) {
   my $app = $job->app;
-  my $domain = $job->info->{queue};
-  $self->_send($job, "mailroom\@$domain", $contacts, 'data', sprintf "From: %s\r\nTo: %s\r\nSubject: status check failed\r\n\r\nstatus check failed", "mailroom\@$domain", join ',', $contacts) if $contacts;
+  my $queue = $job->info->{queue};
+  my $mx = $queue =~ s/^[^@]+@//r;
+  my $to = Mailroom::Router->check($queue, mx => $mx, config => $job->app->config->{$mx});
+  $self->_send($job, $queue, $to->[0], 'data', sprintf "From: %s\r\nTo: %s\r\nSubject: %s status check failed\r\n\r\n%s status check failed", $queue, $to->[1], $queue, $queue);
   $job->finish('failed to receive check, notified contacts');
 }
 

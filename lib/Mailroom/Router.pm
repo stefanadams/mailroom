@@ -21,6 +21,12 @@ has bcc => sub ($self) { [Mail::Address->parse($self->param->{bcc})] };
 has forward_to => sub { {} };
 has 'reply_to';
 
+sub check {
+  my $self = shift->SUPER::new(param => {to => shift}, @_);
+  $self->rewrite_to($self->_build_map($self->to));
+  return [[keys %{$self->forward_to}], $self->format('forward_to')];
+}
+
 sub format ($self, $field) {
   if ($field eq 'from') {
     my $from = $self->from;
